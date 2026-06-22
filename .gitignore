@@ -1,0 +1,18 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+
+# Firebase service accounts (if ever placed here)
+firebase-service-account.json
+*-firebase*.json
+brielmarnysos-*.json
+
+# TLS / corporate CA material
+certs/
+*.pem
+*.crt
+*.key
+
+# OS / editor noise
+.DS_Store

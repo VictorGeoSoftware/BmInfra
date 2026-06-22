@@ -1,0 +1,280 @@
+# ============================================================
+# BM unified stack — Phase 1 (local) / Phase 2 (VPS)
+#
+# Shared infra : Docling API, Docling Price Tables, Postgres, Nginx
+# Isolated     : backend-prod / backend-qa, n8n-prod / n8n-qa
+#
+# Build contexts are relative to THIS file (docker/), so they point
+# one level up at the real repos on this machine:
+#   ../BmBackEnd          -> bm/backend image
+#   ../DoclingBillReader  -> bm/docling image
+#
+# Image sharing: docling-price-tables and backend-qa reuse the images
+# built by docling-api and backend-prod (no second build).
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d
+#   docker compose up -d backend-prod n8n-prod      # PROD only
+#   docker compose up -d backend-qa  n8n-qa         # QA only
+# ============================================================
+
+services:
+
+  # ─── SHARED: Docling (built once, used by all environments) ───
+
+  docling-api:
+    image: bm/docling:latest
+    build:
+      context: ../DoclingBillReader
+      dockerfile: Dockerfile
+    command: ["python", "docling_customer_data_extraction_api_server.py"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - docling-models:/app/models
+      - docling-temp:/app/temp
+      - docling-uploads:/app/uploads
+      - docling-logs:/app/logs
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=INFO
+      # Corporate network breaks HF Xet CDN range requests (HTTP 416);
+      # force plain LFS HTTPS downloads from huggingface.co instead.
+      - HF_HUB_DISABLE_XET=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - bm-network
+
+  docling-price-tables:
+    image: bm/docling:latest          # reuses the image built by docling-api
+    command: ["python", "docling_price_tables_extraction_api_server.py"]
+    ports:
+      - "5001:5001"
+    volumes:
+      - docling-models:/app/models
+      - docling-temp:/app/temp
+      - docling-uploads:/app/uploads
+      - docling-logs:/app/logs
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=INFO
+      - PORT=5001
+      # Corporate network breaks HF Xet CDN range requests (HTTP 416);
+      # force plain LFS HTTPS downloads from huggingface.co instead.
+      - HF_HUB_DISABLE_XET=1
+    depends_on:
+      docling-api:
+        condition: service_healthy   # ensures the image is built first
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - bm-network
+
+  # ─── SHARED: Postgres (single instance, bm_backend + bm_qa databases) ───
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: bm-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: bm_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      # POSTGRES_DB intentionally omitted; databases are created by the init script.
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bm_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bm-network
+
+  # ─── PROD: Backend ───
+
+  backend-prod:
+    image: bm/backend:latest
+    build:
+      context: ../BmBackEnd
+      dockerfile: Dockerfile
+    container_name: bm-backend-prod
+    ports:
+      - "8081:8081"
+    environment:
+      - KTOR_ENV=production
+      # NOTE: sslmode=disable is required — the postgres:16-alpine container has no TLS,
+      # and DataSourceFactory forces sslmode=require unless the URL overrides it.
+      - DB_URL=jdbc:postgresql://postgres:5432/bm_backend?sslmode=disable
+      - DB_USER=bm_app
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
+      - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
+      - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
+      - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
+      - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-user-consumption
+      - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-total-prices
+      # Firebase auth (optional locally). To enable, drop the JSON at
+      # ../BmBackEnd/firebase-service-account.json, set the path below, and
+      # uncomment the matching volume mount. Auth endpoints fail without it,
+      # but the app still starts (Firebase init is lazy).
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
+    volumes:
+      - ../BmBackEnd/brielmarnysos-1dc68-22e522af0a00.json:/app/firebase-service-account.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docling-api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - bm-network
+
+  # ─── PROD: n8n ───
+
+  n8n-prod:
+    image: bm/n8n:latest
+    build:
+      context: ../DoclingBillReader
+      dockerfile: Dockerfile.n8n
+    container_name: bm-n8n-prod
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PROD_PASSWORD:?N8N_PROD_PASSWORD must be set}
+      - DOCLING_API_URL=http://docling-api:5000
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - N8N_SECURE_COOKIE=false
+      - DB_TYPE=sqlite
+    volumes:
+      - n8n-prod-data:/home/node/.n8n
+    depends_on:
+      docling-api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bm-network
+
+  # ─── QA: Backend (reuses bm/backend:latest, no rebuild) ───
+
+  backend-qa:
+    image: bm/backend:latest
+    container_name: bm-backend-qa
+    ports:
+      - "9081:8081"
+    environment:
+      - KTOR_ENV=production
+      - DB_URL=jdbc:postgresql://postgres:5432/bm_qa?sslmode=disable
+      - DB_USER=bm_app
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
+      - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
+      - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
+      - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
+      - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-user-consumption
+      - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-total-prices
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
+    volumes:
+      - ../BmBackEnd/brielmarnysos-1dc68-22e522af0a00.json:/app/firebase-service-account.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docling-api:
+        condition: service_healthy
+      backend-prod:
+        condition: service_started    # ensures bm/backend:latest is built first
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - bm-network
+
+  # ─── QA: n8n ───
+
+  n8n-qa:
+    image: bm/n8n:latest             # reuses the image built by n8n-prod
+    container_name: bm-n8n-qa
+    ports:
+      - "6678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_QA_PASSWORD:?N8N_QA_PASSWORD must be set}
+      - DOCLING_API_URL=http://docling-api:5000
+      - WEBHOOK_URL=http://localhost:6678/
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - N8N_SECURE_COOKIE=false
+      - DB_TYPE=sqlite
+    volumes:
+      - n8n-qa-data:/home/node/.n8n
+    depends_on:
+      docling-api:
+        condition: service_healthy
+      n8n-prod:
+        condition: service_started    # ensures bm/n8n:latest is built first
+    restart: unless-stopped
+    networks:
+      - bm-network
+
+  # ─── SHARED: Nginx (port-based routing — no domain yet) ───
+  # PROD backend on :80, QA backend on :81. n8n is reached directly on
+  # its published ports (5678 / 6678) until a domain is available.
+
+  nginx:
+    image: nginx:alpine
+    container_name: bm-nginx
+    ports:
+      - "8090:80"    # -> backend-prod  (host 80 is often already in use)
+      - "8091:81"    # -> backend-qa
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend-prod
+      - backend-qa
+    restart: unless-stopped
+    networks:
+      - bm-network
+
+volumes:
+  docling-models:
+  docling-temp:
+  docling-uploads:
+  docling-logs:
+  pg-data:
+  n8n-prod-data:
+  n8n-qa-data:
+
+networks:
+  bm-network:
+    driver: bridge
