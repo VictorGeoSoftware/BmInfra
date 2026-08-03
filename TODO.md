@@ -43,6 +43,15 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   vars to the compose service accordingly.
 - [ ] Consider building/pushing images to a registry instead of building on the VPS.
 
+## QA environment
+
+- [x] `bm_qa` database — already exists (created by `init-databases.sql` on first
+  Postgres container start); QA backend healthy on `localhost:9081`.
+- [ ] **Expose QA externally** when needed: open ufw ports `9081` (backend) and
+  `6678` (n8n QA) — currently blocked, so the GitHub Actions QA health check is
+  non-blocking. Command: `ufw allow 9081/tcp && ufw allow 6678/tcp`.
+  Consider restricting to specific source IPs rather than `Anywhere`.
+
 ## Infra hardening (optional)
 
 - [ ] Domain + Let's Encrypt SSL (nginx :443).
