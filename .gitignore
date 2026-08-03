@@ -16,3 +16,4 @@ certs/
 
 # OS / editor noise
 .DS_Store
+.idea/
