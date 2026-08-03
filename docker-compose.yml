@@ -133,7 +133,7 @@ services:
       # but the app still starts (Firebase init is lazy).
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
     volumes:
-      - ../BmBackEnd/brielmarnysos-1dc68-22e522af0a00.json:/app/firebase-service-account.json:ro
+      - ../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json:/app/firebase-service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -199,7 +199,7 @@ services:
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-total-prices
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
     volumes:
-      - ../BmBackEnd/brielmarnysos-1dc68-22e522af0a00.json:/app/firebase-service-account.json:ro
+      - ../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json:/app/firebase-service-account.json:ro
     depends_on:
       postgres:
         condition: service_healthy
