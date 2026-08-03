@@ -37,7 +37,7 @@ git clone https://github.com/VictorGeoSoftware/DoclingBillReader.git
 | File | How to create |
 |------|----------------|
 | `.env` | `cp .env.example .env` then fill real values |
-| `../BmBackEnd/brielmarnysos-1dc68-22e522af0a00.json` | Firebase service-account JSON (from secure store) |
+| `../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json` | Firebase service-account JSON (from secure store). **Must be readable by the container's non-root user**: `chmod 644` (backend containers run as `bmapp`, not root — `600 root:root` causes `/app/firebase-service-account.json (Permission denied)` at login) |
 | `../BmBackEnd/certs/` & `../DoclingBillReader/certs/` | Corporate CA bundles — **local dev only**, leave empty on the VPS |
 
 Generate keys:
