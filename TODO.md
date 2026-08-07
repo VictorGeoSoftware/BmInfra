@@ -47,10 +47,26 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
 
 - [x] `bm_qa` database — already exists (created by `init-databases.sql` on first
   Postgres container start); QA backend healthy on `localhost:9081`.
+- [x] Backend image split (2026-08-07): `backend-prod` → `bm/backend:prod`
+  (build context `../BmBackEnd`, main branch), `backend-qa` → `bm/backend:qa`
+  (build context `../BmBackEnd-qa`, qa branch). Deploys are decoupled —
+  BmBackEnd `deploy.yml` deploys PROD on `main` pushes and QA on `qa` pushes.
+- [x] nginx vhost for `api.qa.poweredbyadvisors.com` → `backend-qa` (port 80,
+  ACME webroot at `/var/www/certbot` for certbot). Port-based QA on :81 kept.
+- [ ] **On the VPS**: `mkdir -p /var/www/certbot`, pull BmInfra, recreate nginx
+  (`docker compose up -d nginx`).
+- [ ] **DNS (IONOS, DNS section — not the "Ajustar destino" wizard)**:
+  A record `api.qa.poweredbyadvisors.com` → 217.154.181.175.
+- [ ] **SSL**: once DNS propagates — `certbot certonly --webroot -w /var/www/certbot
+  -d api.qa.poweredbyadvisors.com`, then add a `listen 443 ssl` server block to
+  `nginx/nginx.conf` and publish `:443` on the nginx container.
 - [ ] **Expose QA externally** when needed: open ufw ports `9081` (backend) and
   `6678` (n8n QA) — currently blocked, so the GitHub Actions QA health check is
   non-blocking. Command: `ufw allow 9081/tcp && ufw allow 6678/tcp`.
   Consider restricting to specific source IPs rather than `Anywhere`.
+  (Not needed for the web flow once `api.qa.*` works via nginx :80/:443.)
+- [ ] **Seed n8n-qa**: import workflows + re-create the Total.es credentials in
+  the n8n-qa instance (port 6678).
 
 ## Infra hardening (optional)
 

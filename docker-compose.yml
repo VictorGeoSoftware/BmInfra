@@ -6,11 +6,15 @@
 #
 # Build contexts are relative to THIS file (docker/), so they point
 # one level up at the real repos on this machine:
-#   ../BmBackEnd          -> bm/backend image
+#   ../BmBackEnd          -> bm/backend:prod image (main branch checkout)
+#   ../BmBackEnd-qa       -> bm/backend:qa image   (qa branch checkout; clone
+#                            with `git clone -b qa <BmBackEnd-url> ../BmBackEnd-qa`
+#                            if you want to build QA locally)
 #   ../DoclingBillReader  -> bm/docling image
 #
-# Image sharing: docling-price-tables and backend-qa reuse the images
-# built by docling-api and backend-prod (no second build).
+# Image sharing: docling-price-tables reuses the image built by docling-api
+# (no second build). backend-prod / backend-qa use separate image tags so
+# QA can run different code than PROD.
 #
 # Usage:
 #   docker compose build
@@ -108,7 +112,7 @@ services:
   # ─── PROD: Backend ───
 
   backend-prod:
-    image: bm/backend:latest
+    image: bm/backend:prod
     build:
       context: ../BmBackEnd
       dockerfile: Dockerfile
@@ -180,10 +184,13 @@ services:
     networks:
       - bm-network
 
-  # ─── QA: Backend (reuses bm/backend:latest, no rebuild) ───
+  # ─── QA: Backend (own image tag bm/backend:qa, built from ../BmBackEnd-qa) ───
 
   backend-qa:
-    image: bm/backend:latest
+    image: bm/backend:qa
+    build:
+      context: ../BmBackEnd-qa
+      dockerfile: Dockerfile
     container_name: bm-backend-qa
     ports:
       - "9081:8081"
@@ -205,8 +212,6 @@ services:
         condition: service_healthy
       docling-api:
         condition: service_healthy
-      backend-prod:
-        condition: service_started    # ensures bm/backend:latest is built first
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
@@ -259,6 +264,9 @@ services:
       - "8091:81"    # -> backend-qa
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # ACME webroot for Let's Encrypt (certbot runs on the host with the
+      # webroot plugin; the challenge files land here).
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on:
       - backend-prod
       - backend-qa
