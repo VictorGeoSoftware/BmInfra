@@ -53,13 +53,13 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   BmBackEnd `deploy.yml` deploys PROD on `main` pushes and QA on `qa` pushes.
 - [x] nginx vhost for `api.qa.poweredbyadvisors.com` → `backend-qa` (port 80,
   ACME webroot at `/var/www/certbot` for certbot). Port-based QA on :81 kept.
-- [ ] **On the VPS**: `mkdir -p /var/www/certbot`, pull BmInfra, recreate nginx
-  (`docker compose up -d nginx`).
-- [ ] **DNS (IONOS, DNS section — not the "Ajustar destino" wizard)**:
-  A record `api.qa.poweredbyadvisors.com` → 217.154.181.175.
-- [ ] **SSL**: once DNS propagates — `certbot certonly --webroot -w /var/www/certbot
-  -d api.qa.poweredbyadvisors.com`, then add a `listen 443 ssl` server block to
-  `nginx/nginx.conf` and publish `:443` on the nginx container.
+- [x] **On the VPS** (2026-08-07): `/var/www/certbot` created, nginx recreated.
+- [x] **DNS (IONOS)** (2026-08-07): A record `api.qa.poweredbyadvisors.com` →
+  217.154.181.175; CNAME `app.qa.poweredbyadvisors.com` → Vercel (qa branch).
+- [x] **SSL** (2026-08-07): certbot webroot cert issued for `api.qa.*` (expires
+  2026-11-05, auto-renew via systemd timer + deploy hook
+  `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`). nginx serves
+  `443 ssl`, HTTP→HTTPS redirect, override maps `443:443`, ufw allows 443.
 - [ ] **Expose QA externally** when needed: open ufw ports `9081` (backend) and
   `6678` (n8n QA) — currently blocked, so the GitHub Actions QA health check is
   non-blocking. Command: `ufw allow 9081/tcp && ufw allow 6678/tcp`.
