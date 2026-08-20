@@ -23,6 +23,15 @@
 #   docker compose up -d backend-qa  n8n-qa         # QA only
 # ============================================================
 
+# Docker's json-file driver is UNBOUNDED by default: container logs grow until
+# the disk fills. That is the single biggest disk risk on the VPS, so every
+# service below references this anchor. 10m x 3 files = 30 MB ceiling each.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ─── SHARED: Docling (built once, used by all environments) ───
@@ -47,6 +56,7 @@ services:
       # force plain LFS HTTPS downloads from huggingface.co instead.
       - HF_HUB_DISABLE_XET=1
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -77,6 +87,7 @@ services:
       docling-api:
         condition: service_healthy   # ensures the image is built first
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
@@ -101,6 +112,7 @@ services:
       - pg-data:/var/lib/postgresql/data
       - ./init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bm_app"]
       interval: 10s
@@ -121,6 +133,12 @@ services:
       - "8081:8081"
     environment:
       - KTOR_ENV=production
+      # Observability: JSON logs for Promtail/Loki, tagged so one monitoring
+      # stack can serve prod and qa without mixing their series.
+      - BM_ENV=prod
+      - SERVICE_NAME=bm-backend
+      - LOG_FORMAT=json
+      - LOG_LEVEL=INFO
       # NOTE: sslmode=disable is required — the postgres:16-alpine container has no TLS,
       # and DataSourceFactory forces sslmode=require unless the URL overrides it.
       - DB_URL=jdbc:postgresql://postgres:5432/bm_backend?sslmode=disable
@@ -144,6 +162,7 @@ services:
       docling-api:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
@@ -181,6 +200,7 @@ services:
       docling-api:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - bm-network
 
@@ -196,6 +216,11 @@ services:
       - "9081:8081"
     environment:
       - KTOR_ENV=production
+      # QA runs DEBUG; same artifact as prod, only the env vars differ.
+      - BM_ENV=qa
+      - SERVICE_NAME=bm-backend
+      - LOG_FORMAT=json
+      - LOG_LEVEL=DEBUG
       - DB_URL=jdbc:postgresql://postgres:5432/bm_qa?sslmode=disable
       - DB_USER=bm_app
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
@@ -213,6 +238,7 @@ services:
       docling-api:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
@@ -249,6 +275,7 @@ services:
       n8n-prod:
         condition: service_started    # ensures bm/n8n:latest is built first
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - bm-network
 
@@ -276,6 +303,7 @@ services:
       - backend-prod
       - backend-qa
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - bm-network
 
