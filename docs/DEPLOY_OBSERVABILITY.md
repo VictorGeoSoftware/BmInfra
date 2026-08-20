@@ -112,9 +112,22 @@ ssh root@217.154.181.175 "cd /opt/bm/BmInfra && docker compose ps backend-qa"
 curl -s -o /dev/null -w '%{http_code}\n' http://217.154.181.175:8091/health
 ```
 
-Expected: container `Up (healthy)`, HTTP `200`. Logs are still plain text at
-this point — correct, because Compose has not yet been updated. Exercise QA
-briefly through the app before continuing.
+Expected: container `Up (healthy)`, HTTP `200`.
+
+Now confirm the **monitoring code** actually shipped, not merely that the
+container is alive:
+
+```bash
+curl -s -i http://217.154.181.175:8091/health | grep -i x-request-id
+```
+
+Expected: `X-Request-Id: <some id>`. That header comes from `RequestIdPlugin`,
+which exists only in the monitoring branch, so its presence proves the merge
+reached the running artifact. If it is missing, the deployed image predates the
+merge — **stop**, and do not promote to PROD.
+
+Logs are still plain text at this point — correct, because Compose has not yet
+been updated. Exercise QA briefly through the app before continuing.
 
 ---
 
