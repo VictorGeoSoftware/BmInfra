@@ -49,30 +49,37 @@ starting Promtail (step 7) avoids the situation entirely.
 ## 2. Set the Grafana credentials — do this FIRST
 
 Nothing to sign up for. Grafana is self-hosted; these values *create* its admin
-login on first startup. Generate a strong one:
+login on first startup.
+
+Generate and write the password in one step, **on the VPS**, so it is never
+typed by hand and never passes through a clipboard or a chat window:
 
 ```bash
 ssh root@217.154.181.175
-openssl rand -base64 24        # copy the output; save it in your password manager
-```
-
-Append to the VPS env file — note `>>`, not `>`:
-
-```bash
 cd /opt/bm/BmInfra
-cp .env .env.bak-$(date +%F)   # cheap insurance
-cat >> .env <<'EOF'
 
-# ─── Observability (Grafana) ───
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=PASTE_THE_GENERATED_VALUE_HERE
-EOF
+cp .env .env.bak-$(date +%F)          # insurance — see the warning below
+
+printf '\n# ─── Observability (Grafana) ───\nGRAFANA_ADMIN_USER=admin\nGRAFANA_ADMIN_PASSWORD=%s\n' \
+  "$(openssl rand -hex 24)" >> .env
 ```
 
-Replace the placeholder, then **verify**:
+> ⚠️ **`>>`, never `>`.** `>>` appends; `>` overwrites the whole file and would
+> wipe `DB_PASSWORD`, `BM_ENCRYPTION_KEY` and the n8n passwords. Hence the backup.
+
+`-hex` is deliberate: it yields only `0-9a-f`, so there are no characters an env
+parser might treat specially (base64 can emit `+`, `/`, `=`). 48 chars ≈ 192 bits.
+
+Read the value back, store it in your password manager, and tighten permissions:
 
 ```bash
-grep GRAFANA .env
+grep GRAFANA_ADMIN_PASSWORD .env
+chmod 600 .env
+```
+
+Then **verify**:
+
+```bash
 docker compose config >/dev/null && echo "OK: compose parses"
 ```
 
