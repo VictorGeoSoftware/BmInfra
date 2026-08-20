@@ -1,0 +1,142 @@
+{
+  "uid": "bm-logs",
+  "title": "BM — Logs",
+  "tags": ["bm", "logs"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "custom",
+        "query": "prod,qa",
+        "current": { "text": "prod", "value": "prod" },
+        "options": [
+          { "text": "prod", "value": "prod", "selected": true },
+          { "text": "qa", "value": "qa", "selected": false }
+        ]
+      },
+      {
+        "name": "search",
+        "label": "Free text",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Log rate by level — backends ($env)",
+      "description": "A sudden ERROR spike is the fastest signal that a deploy went wrong.",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (rate({job=\"bm-backend\", env=\"$env\"} [5m]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log rate by service — whole stack",
+      "description": "Silence from a service is as informative as noise from it.",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate({job=~\"bm-backend|bm-infra\"} [5m]))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20 } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Errors (last 1h) — $env",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\", level=\"ERROR\"} [1h]))"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 25 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Warnings (last 1h) — $env",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\", level=\"WARN\"} [1h]))"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "type": "logs",
+      "title": "Recent errors — $env (click a line to see requestId)",
+      "description": "Copy the requestId from a line, then paste it into the 'Trace one request' panel below to follow it across backend, Docling and n8n.",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 11, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"bm-backend\", env=\"$env\", level=~\"ERROR|WARN\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "All logs — free text search ($search)",
+      "description": "Leave the search box empty to see everything.",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 19 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"bm-backend|bm-infra\"} |= \"$search\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

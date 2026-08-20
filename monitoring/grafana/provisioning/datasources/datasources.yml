@@ -1,0 +1,17 @@
+# Provisioned automatically on Grafana start — no manual UI setup, and the
+# configuration lives in git rather than in Grafana's SQLite database.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: bm-loki
+    url: http://loki:3100
+    isDefault: true
+    jsonData:
+      maxLines: 1000
+      # Lets Grafana surface requestId/logger/method/path, which Promtail
+      # attaches as structured metadata rather than as labels.
+      derivedFields: []
+    editable: false
