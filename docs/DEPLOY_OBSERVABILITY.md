@@ -218,14 +218,20 @@ Expected: `bm-backend`, `bm-infra`, `bm-nginx`. If a job is missing, check
 
 ## 8. Acceptance test — trace one request end to end
 
-Generate a request and capture the id Nginx assigns:
+Generate a request and capture the id Nginx assigns. The endpoint does not need
+to succeed — a `404` or `401` is fine, because what is being tested is log
+correlation, not the response:
 
 ```bash
-RID=$(curl -s -i http://217.154.181.175:8090/api/v1/price-table-results \
+RID=$(curl -s -i -X POST http://217.154.181.175:8090/api/v1/prices/collected \
+        -H 'Content-Type: application/json' -d '{}' \
       | awk 'tolower($1)=="x-request-id:"{print $2}' | tr -d '\r')
 echo "request id: $RID"
 sleep 10
 ```
+
+Do not use `/health` here: it is deliberately excluded from request logging
+(it is polled constantly by Docker), so it would produce no backend log line.
 
 Query Loki for that id across every service:
 
