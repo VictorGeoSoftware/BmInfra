@@ -54,7 +54,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (service) (rate({job=~\"bm-backend|bm-infra\"} [5m]))",
+          "expr": "sum by (service) (rate({job=~\"bm-backend|bm-infra|bm-nginx\"} [5m]))",
           "legendFormat": "{{service}}"
         }
       ],
@@ -101,7 +101,7 @@
     },
     {
       "type": "logs",
-      "title": "Recent errors — $env (click a line to see requestId)",
+      "title": "Recent errors & warnings — $env (click a line to see requestId)",
       "description": "Copy the requestId from a line, then paste it into the 'Trace one request' panel below to follow it across backend, Docling and n8n.",
       "datasource": { "type": "loki", "uid": "bm-loki" },
       "gridPos": { "h": 11, "w": 12, "x": 12, "y": 8 },
@@ -128,7 +128,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=~\"bm-backend|bm-infra\"} |= \"$search\""
+          "expr": "{job=~\"bm-backend|bm-infra|bm-nginx\"} |= \"$search\""
         }
       ],
       "options": {
