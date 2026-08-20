@@ -137,8 +137,10 @@ services:
       # single Loki/Grafana can serve both PROD and QA.
       - BM_ENV=prod
       - SERVICE_NAME=bm-backend
-      - LOG_FORMAT=json
-      - LOG_LEVEL=INFO
+      # Overridable from .env so logging can be rolled back to plain text, or
+      # temporarily raised to DEBUG, without editing a tracked file on the VPS.
+      - LOG_FORMAT=${PROD_LOG_FORMAT:-json}
+      - LOG_LEVEL=${PROD_LOG_LEVEL:-INFO}
       # NOTE: sslmode=disable is required — the postgres:16-alpine container has no TLS,
       # and DataSourceFactory forces sslmode=require unless the URL overrides it.
       - DB_URL=jdbc:postgresql://postgres:5432/bm_backend?sslmode=disable
@@ -219,8 +221,8 @@ services:
       # Same code as PROD; only these values differ (see MONITORING_PLAN.md §5).
       - BM_ENV=qa
       - SERVICE_NAME=bm-backend
-      - LOG_FORMAT=json
-      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=${QA_LOG_FORMAT:-json}
+      - LOG_LEVEL=${QA_LOG_LEVEL:-DEBUG}
       - DB_URL=jdbc:postgresql://postgres:5432/bm_qa?sslmode=disable
       - DB_USER=bm_app
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
