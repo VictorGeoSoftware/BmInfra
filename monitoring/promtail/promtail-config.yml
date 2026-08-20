@@ -1,0 +1,145 @@
+# ============================================================
+# Promtail — tails Docker container logs and ships them to Loki.
+#
+# Two jobs on purpose:
+#   bm-backend  -> JSON logs from the Ktor backends, parsed into queryable
+#                  fields (level, requestId, logger, ...)
+#   bm-infra    -> everything else (Docling, n8n, Postgres, Nginx), plain text
+#
+# Label discipline matters: Loki indexes LABELS, not log content. Only
+# low-cardinality values belong here. requestId is deliberately NOT a label
+# (it would create one stream per request); it is extracted as structured
+# metadata and stays searchable via `| json` / `| requestId="..."`.
+# ============================================================
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ─── Ktor backends: structured JSON ───
+  - job_name: bm-backend
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project"]
+    relabel_configs:
+      # Only the backend containers reach this job.
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'backend-(prod|qa)'
+        action: keep
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: 'container'
+      - target_label: 'job'
+        replacement: 'bm-backend'
+    pipeline_stages:
+      # Docker delivers one JSON object per line (our logback JSON encoder).
+      - json:
+          expressions:
+            level: level
+            logger: logger
+            env: env
+            app_service: service
+            requestId: requestId
+            method: method
+            path: path
+            message: message
+            timestamp: timestamp
+      # Use the application's own timestamp, not ingestion time, so a delayed
+      # shipment does not distort the graphs.
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          action_on_failure: fudge
+      # Low cardinality only.
+      - labels:
+          level:
+          env:
+      # High cardinality: searchable, but not indexed as labels.
+      - structured_metadata:
+          requestId:
+          logger:
+          method:
+          path:
+      # Keep the human-readable message as the log line in Grafana.
+      - output:
+          source: message
+
+  # ─── Nginx: JSON access logs (see nginx.conf log_format bm_json) ───
+  - job_name: bm-nginx
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'nginx'
+        action: keep
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: 'container'
+      - target_label: 'job'
+        replacement: 'bm-nginx'
+    pipeline_stages:
+      # error_log lines are plain text, so tolerate parse failures.
+      - json:
+          expressions:
+            requestId: requestId
+            method: method
+            path: path
+            status: status
+            requestTimeSeconds: requestTimeSeconds
+            timestamp: timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+          action_on_failure: fudge
+      - structured_metadata:
+          requestId:
+          method:
+          path:
+          status:
+
+  # ─── Everything else: Docling, n8n, Postgres ───
+  - job_name: bm-infra
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project"]
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'backend-(prod|qa)|nginx'
+        action: drop
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: 'container'
+      - target_label: 'job'
+        replacement: 'bm-infra'
+    pipeline_stages:
+      # Best-effort level extraction so `level` filtering works across the
+      # whole stack, not just the backends.
+      - regex:
+          expression: '(?i)(?P<level>\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b)'
+      - labels:
+          level:

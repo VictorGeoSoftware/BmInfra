@@ -1,0 +1,69 @@
+{
+  "uid": "bm-request-trace",
+  "title": "BM — Trace one request",
+  "tags": ["bm", "logs", "trace"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "requestId",
+        "label": "Request ID",
+        "description": "Paste the X-Request-Id from a failed response, or copy it from the BM — Logs dashboard.",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text",
+      "title": "How to use this",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "Paste a **Request ID** in the box above. Every service that handled that request appears below, in order.\n\nWhere to find one: the `X-Request-Id` response header, the `requestId` field of an API error body, or any line in the **BM — Logs** dashboard.\n\nThe id is created by Nginx (or accepted from the caller), carried through the backend's MDC, and forwarded to Docling and n8n — so this is the whole story of one bill upload."
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Backend — everything logged for $requestId",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"bm-backend\"} | requestId = `$requestId`"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Ascending"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Rest of the stack — Docling / n8n / Nginx mentioning $requestId",
+      "description": "These services log the forwarded header as plain text, so this is a substring match rather than a parsed field.",
+      "datasource": { "type": "loki", "uid": "bm-loki" },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 18 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"bm-infra\"} |= `$requestId`"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Ascending"
+      }
+    }
+  ]
+}
