@@ -23,9 +23,8 @@
 #   docker compose up -d backend-qa  n8n-qa         # QA only
 # ============================================================
 
-# Docker's json-file driver is UNBOUNDED by default: container logs grow until
-# the disk fills. That is the single biggest disk risk on the VPS, so every
-# service below references this anchor. 10m x 3 files = 30 MB ceiling each.
+# Docker's json-file driver is UNBOUNDED by default and is the most common cause
+# of a full disk on a long-running host. Capped here for every service.
 x-logging: &default-logging
   driver: json-file
   options:
@@ -55,8 +54,8 @@ services:
       # Corporate network breaks HF Xet CDN range requests (HTTP 416);
       # force plain LFS HTTPS downloads from huggingface.co instead.
       - HF_HUB_DISABLE_XET=1
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -86,8 +85,8 @@ services:
     depends_on:
       docling-api:
         condition: service_healthy   # ensures the image is built first
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
@@ -111,8 +110,8 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
       - ./init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bm_app"]
       interval: 10s
@@ -131,14 +130,17 @@ services:
     container_name: bm-backend-prod
     ports:
       - "8081:8081"
+    logging: *default-logging
     environment:
       - KTOR_ENV=production
-      # Observability: JSON logs for Promtail/Loki, tagged so one monitoring
-      # stack can serve prod and qa without mixing their series.
+      # Observability: structured JSON logs tagged with the environment, so a
+      # single Loki/Grafana can serve both PROD and QA.
       - BM_ENV=prod
       - SERVICE_NAME=bm-backend
-      - LOG_FORMAT=json
-      - LOG_LEVEL=INFO
+      # Overridable from .env so logging can be rolled back to plain text, or
+      # temporarily raised to DEBUG, without editing a tracked file on the VPS.
+      - LOG_FORMAT=${PROD_LOG_FORMAT:-json}
+      - LOG_LEVEL=${PROD_LOG_LEVEL:-INFO}
       # NOTE: sslmode=disable is required — the postgres:16-alpine container has no TLS,
       # and DataSourceFactory forces sslmode=require unless the URL overrides it.
       - DB_URL=jdbc:postgresql://postgres:5432/bm_backend?sslmode=disable
@@ -162,7 +164,6 @@ services:
       docling-api:
         condition: service_healthy
     restart: unless-stopped
-    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
@@ -199,8 +200,8 @@ services:
     depends_on:
       docling-api:
         condition: service_healthy
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
     networks:
       - bm-network
 
@@ -214,13 +215,14 @@ services:
     container_name: bm-backend-qa
     ports:
       - "9081:8081"
+    logging: *default-logging
     environment:
       - KTOR_ENV=production
-      # QA runs DEBUG; same artifact as prod, only the env vars differ.
+      # Same code as PROD; only these values differ (see MONITORING_PLAN.md §5).
       - BM_ENV=qa
       - SERVICE_NAME=bm-backend
-      - LOG_FORMAT=json
-      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=${QA_LOG_FORMAT:-json}
+      - LOG_LEVEL=${QA_LOG_LEVEL:-DEBUG}
       - DB_URL=jdbc:postgresql://postgres:5432/bm_qa?sslmode=disable
       - DB_USER=bm_app
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
@@ -238,7 +240,6 @@ services:
       docling-api:
         condition: service_healthy
     restart: unless-stopped
-    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
@@ -274,8 +275,8 @@ services:
         condition: service_healthy
       n8n-prod:
         condition: service_started    # ensures bm/n8n:latest is built first
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
     networks:
       - bm-network
 
@@ -302,8 +303,86 @@ services:
     depends_on:
       - backend-prod
       - backend-qa
-    restart: unless-stopped
     logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - bm-network
+
+  # ─── OBSERVABILITY: Loki + Promtail + Grafana (MONITORING_PLAN.md Phase 1) ───
+  # Loki stores logs, Promtail ships them from every container, Grafana is the
+  # UI. All three bind to 127.0.0.1 only: never expose them to the internet.
+
+  loki:
+    image: grafana/loki:3.1.1
+    container_name: bm-loki
+    # Loopback only. Reach it through Grafana, or via an SSH tunnel.
+    ports:
+      - "127.0.0.1:3100:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    user: "10001:10001"
+    logging: *default-logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready | grep -q ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    networks:
+      - bm-network
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    container_name: bm-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Read-only Docker socket: Promtail discovers containers and reads their
+      # logs through the API, so it needs no access to the host filesystem.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/tmp
+    logging: *default-logging
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - bm-network
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: bm-grafana
+    # Loopback only: reach it with
+    #   ssh -L 3000:127.0.0.1:3000 <user>@<vps>
+    # then open http://localhost:3000
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      # No public sign-up, no anonymous access.
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_LOG_LEVEL=warn
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    logging: *default-logging
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - bm-network
 
@@ -315,6 +394,9 @@ volumes:
   pg-data:
   n8n-prod-data:
   n8n-qa-data:
+  loki-data:
+  promtail-positions:
+  grafana-data:
 
 networks:
   bm-network:
