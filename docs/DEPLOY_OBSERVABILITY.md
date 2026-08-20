@@ -338,6 +338,37 @@ and let `deploy.yml` redeploy.
 
 ## Known issues
 
+- **The VPS has an untracked `docker-compose.override.yml`.** Compose loads any
+  file with that name automatically, so the server's effective configuration is
+  `docker-compose.yml` **plus** this file — invisible to anyone reading the repo.
+  Its current contents:
+
+  ```yaml
+  services:
+    nginx:
+      ports:
+        - "80:80"
+        - "81:81"
+        - "443:443"
+    backend-prod:
+      environment:
+        - BM_AUTH_EMAIL_ALLOWLIST=${BM_AUTH_EMAIL_ALLOWLIST}
+    backend-qa:
+      environment:
+        - BM_AUTH_EMAIL_ALLOWLIST=${BM_AUTH_EMAIL_ALLOWLIST}
+  ```
+
+  It is benign for observability — verified with `docker compose config`: `ports`
+  **append** (so both `80` and `8090` are published) and `environment` merges by
+  key (so `LOG_FORMAT=json` survives). It is recorded here because it exists
+  only on the VPS: if the server is rebuilt it is lost, and ports 80/443 would
+  silently stop being published. It cannot simply be committed under that name —
+  Compose would auto-load it on developer machines too and try to bind
+  privileged ports.
+
+  Note `git reset --hard` does **not** delete untracked files, so this survives
+  any future CI automation.
+
 - **BmInfra has no CI.** `deploy.yml` does `cd /opt/bm/BmInfra` but never pulls
   it, so every infra change needs steps 5–7 by hand. Worth automating next.
 - **`./gradlew build` is red on `qa`** — two pre-existing
