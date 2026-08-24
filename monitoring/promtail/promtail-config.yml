@@ -134,6 +134,16 @@ scrape_configs:
           - name: label
             values: ["com.docker.compose.project"]
     relabel_configs:
+      # This job is a DROP-list (everything not matched below is kept), unlike
+      # the two above which are KEEP-lists. That makes it the only job that can
+      # pick up a container which is not managed by Compose — and such a
+      # container has no com.docker.compose.* labels, so every label here
+      # resolves empty and Loki rejects the stream with
+      #   "at least one label pair is required per stream"
+      # in a permanent retry loop. Establish a floor first.
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        regex: '.+'
+        action: keep
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         regex: 'backend-(prod|qa)|nginx'
         action: drop
