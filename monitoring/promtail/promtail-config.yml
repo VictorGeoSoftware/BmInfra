@@ -15,7 +15,11 @@
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
-  log_level: warn
+  # TEMPORARY (diagnostic): raised from warn to info so Promtail logs every
+  # target it adds together with the final resolved label set. Needed to find
+  # the target producing a stream with no labels, which Loki rejects in a
+  # permanent retry loop. Revert to warn once identified.
+  log_level: info
 
 positions:
   filename: /tmp/positions.yaml
