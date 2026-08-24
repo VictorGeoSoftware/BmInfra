@@ -91,7 +91,7 @@ jobs:
 
             # Loki, Promtail and Grafana read their config from bind-mounted
             # files. Changing a file's CONTENTS does not change the container
-            # spec, so `up -d` above leaves them running with the old config
+            # spec, so 'up -d' above leaves them running with the old config
             # still in memory — the change would reach the VPS and silently not
             # apply. Restart them explicitly.
             #
@@ -101,7 +101,7 @@ jobs:
             echo '♻️  Reloading monitoring configs...'
             docker compose restart loki promtail grafana
 
-            # Nginx likewise re-reads nginx.conf only on restart; `up -d` will
+            # Nginx likewise re-reads nginx.conf only on restart; 'up -d' will
             # have recreated it only if the compose spec itself changed.
             docker compose exec -T nginx nginx -t \
               && docker compose exec -T nginx nginx -s reload \
