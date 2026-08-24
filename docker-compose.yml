@@ -147,6 +147,8 @@ services:
       - DB_USER=bm_app
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
+      # Optional. Unset => /metrics is disabled and returns 401 to everyone.
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
       - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-user-consumption
@@ -229,6 +231,8 @@ services:
       - DB_USER=bm_app
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
+      # Optional. Unset => /metrics is disabled and returns 401 to everyone.
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
       - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-user-consumption
