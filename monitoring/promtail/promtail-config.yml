@@ -1,25 +1,27 @@
 # ============================================================
 # Promtail — tails Docker container logs and ships them to Loki.
 #
-# Two jobs on purpose:
-#   bm-backend  -> JSON logs from the Ktor backends, parsed into queryable
-#                  fields (level, requestId, logger, ...)
-#   bm-infra    -> everything else (Docling, n8n, Postgres, Nginx), plain text
+# ONE scrape_config on purpose. Promtail's docker_sd_configs opens a tailer for
+# every discovered container in EVERY scrape_config, and relabel `keep`/`drop`
+# does not stop the tailer — it only prevents the labels from being built. With
+# three scrape_configs, each container was tailed three times: once with correct
+# labels, and twice with NO labels at all. Loki rejects a label-less stream
+# ("at least one label pair is required per stream") and Promtail retries
+# forever, which produced ~98% of all Loki and Promtail log output.
+#
+# So: discover once, assign the job label by relabel cascade, and branch the
+# parsing with pipeline `match` stages instead.
 #
 # Label discipline matters: Loki indexes LABELS, not log content. Only
 # low-cardinality values belong here. requestId is deliberately NOT a label
 # (it would create one stream per request); it is extracted as structured
-# metadata and stays searchable via `| json` / `| requestId="..."`.
+# metadata and stays searchable via `| requestId="..."`.
 # ============================================================
 
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
-  # TEMPORARY (diagnostic): raised from warn to info so Promtail logs every
-  # target it adds together with the final resolved label set. Needed to find
-  # the target producing a stream with no labels, which Loki rejects in a
-  # permanent retry loop. Revert to warn once identified.
-  log_level: info
+  log_level: warn
 
 positions:
   filename: /tmp/positions.yaml
@@ -29,139 +31,115 @@ clients:
 
 scrape_configs:
 
-  # ─── Ktor backends: structured JSON ───
-  - job_name: bm-backend
+  - job_name: bm
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 15s
         filters:
           - name: label
             values: ["com.docker.compose.project"]
-    relabel_configs:
-      # Only the backend containers reach this job.
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: 'backend-(prod|qa)'
-        action: keep
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        target_label: 'service'
-      - source_labels: ['__meta_docker_container_name']
-        regex: '/?(.*)'
-        target_label: 'container'
-      - target_label: 'job'
-        replacement: 'bm-backend'
-    pipeline_stages:
-      # Docker delivers one JSON object per line (our logback JSON encoder).
-      - json:
-          expressions:
-            level: level
-            logger: logger
-            env: env
-            app_service: service
-            requestId: requestId
-            method: method
-            path: path
-            message: message
-            stack_trace: stack_trace
-            timestamp: timestamp
-      # Use the application's own timestamp, not ingestion time, so a delayed
-      # shipment does not distort the graphs.
-      - timestamp:
-          source: timestamp
-          format: RFC3339Nano
-          action_on_failure: fudge
-      # Low cardinality only.
-      - labels:
-          level:
-          env:
-      # High cardinality: searchable, but not indexed as labels.
-      - structured_metadata:
-          requestId:
-          logger:
-          method:
-          path:
-      # Re-attach the stack trace to the message. The `output` stage below
-      # REPLACES the log line with a single field, so without this an exception
-      # would reach Loki as its one-line message with the trace silently
-      # dropped — defeating the point of logging stack traces at all.
-      - template:
-          source: message
-          template: '{{ if .stack_trace }}{{ .message }}{{ "\n" }}{{ .stack_trace }}{{ else }}{{ .message }}{{ end }}'
-      # Keep the human-readable message as the log line in Grafana.
-      - output:
-          source: message
 
-  # ─── Nginx: JSON access logs (see nginx.conf log_format bm_json) ───
-  - job_name: bm-nginx
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 15s
-        filters:
-          - name: label
-            values: ["com.docker.compose.project"]
     relabel_configs:
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: 'nginx'
-        action: keep
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        target_label: 'service'
-      - source_labels: ['__meta_docker_container_name']
-        regex: '/?(.*)'
-        target_label: 'container'
-      - target_label: 'job'
-        replacement: 'bm-nginx'
-    pipeline_stages:
-      # error_log lines are plain text, so tolerate parse failures.
-      - json:
-          expressions:
-            requestId: requestId
-            method: method
-            path: path
-            status: status
-            requestTimeSeconds: requestTimeSeconds
-            timestamp: timestamp
-      - timestamp:
-          source: timestamp
-          format: RFC3339
-          action_on_failure: fudge
-      - structured_metadata:
-          requestId:
-          method:
-          path:
-          status:
-
-  # ─── Everything else: Docling, n8n, Postgres ───
-  - job_name: bm-infra
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 15s
-        filters:
-          - name: label
-            values: ["com.docker.compose.project"]
-    relabel_configs:
-      # This job is a DROP-list (everything not matched below is kept), unlike
-      # the two above which are KEEP-lists. That makes it the only job that can
-      # pick up a container which is not managed by Compose — and such a
-      # container has no com.docker.compose.* labels, so every label here
-      # resolves empty and Loki rejects the stream with
-      #   "at least one label pair is required per stream"
-      # in a permanent retry loop. Establish a floor first.
+      # Floor: only containers managed by Compose. Anything else (a stray
+      # `docker run`) has no com.docker.compose.* labels, so every rule below
+      # would resolve empty and produce exactly the label-less stream this
+      # config exists to avoid.
       - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
         regex: '.+'
         action: keep
-      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
-        regex: 'backend-(prod|qa)|nginx'
-        action: drop
+
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: 'service'
       - source_labels: ['__meta_docker_container_name']
         regex: '/?(.*)'
         target_label: 'container'
+
+      # job label by cascade: default to bm-infra, then override for the
+      # services that get bespoke parsing. `replace` only applies when the
+      # regex matches, so order gives us if/else-if/else. These three values
+      # are what the Grafana dashboards query, so they must not change.
       - target_label: 'job'
         replacement: 'bm-infra'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'backend-(prod|qa)'
+        target_label: 'job'
+        replacement: 'bm-backend'
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'nginx'
+        target_label: 'job'
+        replacement: 'bm-nginx'
+
     pipeline_stages:
-      # Best-effort level extraction so `level` filtering works across the
-      # whole stack, not just the backends.
-      - regex:
-          expression: '(?i)(?P<level>\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b)'
-      - labels:
-          level:
+
+      # ─── Ktor backends: structured JSON from the logback encoder ───
+      - match:
+          selector: '{job="bm-backend"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  logger: logger
+                  env: env
+                  requestId: requestId
+                  method: method
+                  path: path
+                  message: message
+                  stack_trace: stack_trace
+                  timestamp: timestamp
+            # Use the application's own timestamp, not ingestion time, so a
+            # delayed shipment does not distort the graphs.
+            - timestamp:
+                source: timestamp
+                format: RFC3339Nano
+                action_on_failure: fudge
+            - labels:
+                level:
+                env:
+            - structured_metadata:
+                requestId:
+                logger:
+                method:
+                path:
+            # Re-attach the stack trace to the message. The `output` stage
+            # REPLACES the log line with a single field, so without this an
+            # exception would reach Loki as its one-line message with the trace
+            # silently dropped — defeating the point of logging traces at all.
+            - template:
+                source: message
+                template: '{{ if .stack_trace }}{{ .message }}{{ "\n" }}{{ .stack_trace }}{{ else }}{{ .message }}{{ end }}'
+            - output:
+                source: message
+
+      # ─── Nginx: JSON access logs (see nginx.conf log_format bm_json) ───
+      - match:
+          selector: '{job="bm-nginx"}'
+          stages:
+            # error_log lines are plain text, so parse failures are tolerated.
+            - json:
+                expressions:
+                  requestId: requestId
+                  method: method
+                  path: path
+                  status: status
+                  requestTimeSeconds: requestTimeSeconds
+                  timestamp: timestamp
+            - timestamp:
+                source: timestamp
+                format: RFC3339
+                action_on_failure: fudge
+            - structured_metadata:
+                requestId:
+                method:
+                path:
+                status:
+
+      # ─── Everything else: Docling, n8n, Postgres, and the monitoring stack ───
+      - match:
+          selector: '{job="bm-infra"}'
+          stages:
+            # Best-effort level extraction so `level` filtering works across the
+            # whole stack, not just the backends.
+            - regex:
+                expression: '(?i)(?P<level>\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b)'
+            - labels:
+                level:
