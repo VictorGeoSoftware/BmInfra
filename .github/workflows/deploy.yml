@@ -1,0 +1,128 @@
+name: Deploy infrastructure
+
+# Keeps the VPS compose project in sync with this repository.
+#
+# Before this existed, BmBackEnd's and DoclingBillReader's workflows both ran
+# `docker compose` against /opt/bm/BmInfra but never pulled it, so infrastructure
+# changes only reached the server if someone SSH'd in by hand. The failure mode
+# was not a broken deploy but a GREEN one running stale config — see
+# BmBackEnd/docs/TECH_DEBT.md §1.
+#
+# Application images are NOT built here: backend-prod / backend-qa are built by
+# BmBackEnd's workflow, docling / n8n by DoclingBillReader's. This workflow only
+# applies configuration, hence `--no-build`.
+
+on:
+  push:
+    branches:
+      - master
+    # Documentation cannot change runtime behaviour; skip the deploy for it.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Sync compose project on VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 217.154.181.175 >> ~/.ssh/known_hosts
+
+      - name: Sync repository on server
+        run: |
+          ssh root@217.154.181.175 "set -e
+            cd /opt/bm/BmInfra
+
+            # Refuse to clobber an emergency hand-edit. Untracked files (.env,
+            # docker-compose.override.yml) are unaffected by the reset below and
+            # are deliberately not checked here.
+            if ! git diff --quiet HEAD; then
+              echo '::error::Tracked files were modified directly on the VPS. Refusing to reset and lose them. Inspect /opt/bm/BmInfra, commit or revert, then re-run.'
+              git status --short
+              exit 1
+            fi
+
+            echo '📦 Syncing BmInfra (master)...'
+            git fetch origin
+            git reset --hard origin/master
+          "
+
+      - name: Validate configuration before applying
+        run: |
+          ssh root@217.154.181.175 "set -e
+            cd /opt/bm/BmInfra
+
+            # Compose parses the WHOLE file before acting, so one missing \${VAR:?}
+            # breaks every pipeline that targets this project. Fail here, with the
+            # previous config still running, rather than half-applying.
+            if ! docker compose config >/dev/null; then
+              echo '::error::docker compose config failed — the VPS .env is probably missing a required variable. Nothing was applied.'
+              exit 1
+            fi
+            echo '✅ Compose configuration is valid'
+          "
+
+      - name: Apply configuration
+        run: |
+          ssh root@217.154.181.175 "set -e
+            cd /opt/bm/BmInfra
+
+            # Idempotent: Compose recreates only the containers whose resolved
+            # config actually changed, and leaves the rest running untouched.
+            echo '🔄 Applying configuration...'
+            docker compose up -d --no-build
+
+            docker compose ps
+          "
+
+      - name: Reload bind-mounted configs
+        run: |
+          ssh root@217.154.181.175 "set -e
+            cd /opt/bm/BmInfra
+
+            # Loki, Promtail and Grafana read their config from bind-mounted
+            # files. Changing a file's CONTENTS does not change the container
+            # spec, so `up -d` above leaves them running with the old config
+            # still in memory — the change would reach the VPS and silently not
+            # apply. Restart them explicitly.
+            #
+            # Cheap and safe: they are not on the request path, and Promtail's
+            # read positions live in a named volume, so no logs are re-shipped
+            # or lost.
+            echo '♻️  Reloading monitoring configs...'
+            docker compose restart loki promtail grafana
+
+            # Nginx likewise re-reads nginx.conf only on restart; `up -d` will
+            # have recreated it only if the compose spec itself changed.
+            docker compose exec -T nginx nginx -t \
+              && docker compose exec -T nginx nginx -s reload \
+              || echo 'nginx reload skipped (container not running or config unchanged)'
+          "
+
+      - name: Health check
+        run: |
+          sleep 15
+          echo "Checking PROD backend..."
+          curl -f http://217.154.181.175:8081/health || exit 1
+          echo "Checking Loki is ingesting..."
+          ssh root@217.154.181.175 \
+            "curl -sf http://127.0.0.1:3100/loki/api/v1/label/job/values | grep -q bm-backend" \
+            || { echo "::error::Loki is not returning the bm-backend job"; exit 1; }
+          echo "✅ Infrastructure deployment successful!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Infrastructure deployment failed. Container status:"
+          ssh root@217.154.181.175 "cd /opt/bm/BmInfra && docker compose ps" || true
+          echo "Recent backend-prod logs:"
+          ssh root@217.154.181.175 "cd /opt/bm/BmInfra && docker compose logs --tail=50 backend-prod" || true
