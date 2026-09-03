@@ -96,6 +96,37 @@ services:
     networks:
       - bm-network
 
+  # ─── SHARED: price-agent (LLM-backed replacement for docling-price-tables) ───
+  # Same HTTP contract as docling-price-tables. Not wired to any backend by
+  # default: point QA at it with QA_PRICE_TABLES_URL=http://price-agent:5002
+  # in .env (rollback = remove that line and recreate backend-qa).
+
+  price-agent:
+    image: bm/price-agent:latest
+    build:
+      context: ../BmPriceAgent
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      # Optional at compose level so unrelated compose commands keep working
+      # without it; /ready reports 503 until a key is provided.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.7-flash}
+      - LOG_LEVEL=${PRICE_AGENT_LOG_LEVEL:-INFO}
+      - MAX_CONCURRENCY=${PRICE_AGENT_MAX_CONCURRENCY:-5}
+      - PORT=5002
+    logging: *default-logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - bm-network
+
   # ─── SHARED: Postgres (single instance, bm_backend + bm_qa databases) ───
 
   postgres:
@@ -150,7 +181,9 @@ services:
       # Optional. Unset => /metrics is disabled and returns 401 to everyone.
       - METRICS_TOKEN=${METRICS_TOKEN:-}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
-      - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
+      # Default keeps the Docling service; set PROD_PRICE_TABLES_URL in .env to
+      # http://price-agent:5002 to switch extraction to the LLM agent.
+      - DOCLING_PRICE_TABLES_API_URL=${PROD_PRICE_TABLES_URL:-http://docling-price-tables:5001}
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-user-consumption
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-total-prices
       # Firebase auth (optional locally). To enable, drop the JSON at
@@ -234,7 +267,9 @@ services:
       # Optional. Unset => /metrics is disabled and returns 401 to everyone.
       - METRICS_TOKEN=${METRICS_TOKEN:-}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
-      - DOCLING_PRICE_TABLES_API_URL=http://docling-price-tables:5001
+      # Default keeps the Docling service; set QA_PRICE_TABLES_URL in .env to
+      # http://price-agent:5002 to switch extraction to the LLM agent.
+      - DOCLING_PRICE_TABLES_API_URL=${QA_PRICE_TABLES_URL:-http://docling-price-tables:5001}
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-user-consumption
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-total-prices
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
