@@ -100,6 +100,10 @@ services:
       N8N_BASIC_AUTH_PASSWORD: ${N8N_QA_PASSWORD:?Set N8N_QA_PASSWORD in local-qa.env}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in local-qa.env}
       N8N_RESTRICT_ENVIRONMENT_VARIABLES: "false"
+      # Corporate TLS inspection is trusted by Node through the image CA bundle.
+      # Chromium uses its own verifier, so bypass only in this local QA stack.
+      PLAYWRIGHT_IGNORE_HTTPS_ERRORS: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
       DOCLING_API_URL: http://docling-api:5000
       DOCLING_CUSTOMER_API_URL: http://docling-api:5000
       PRICE_AGENT_URL: http://price-agent:5002
