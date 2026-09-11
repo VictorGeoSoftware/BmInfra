@@ -1,0 +1,181 @@
+name: bm-local-qa
+
+# Local QA only. VPS-only services such as Nginx, TLS, PROD, and observability
+# intentionally do not belong in this stack.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-proxy-environment: &proxy-environment
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,docling-api,price-agent,n8n-qa,backend-qa}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:15433:5432"
+    environment:
+      POSTGRES_DB: bm_qa
+      POSTGRES_USER: bm_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in local-qa.env}
+    volumes:
+      - local-qa-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bm_app -d bm_qa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    restart: unless-stopped
+
+  docling-api:
+    image: bm/docling:local-qa
+    build:
+      context: ../DoclingBillReader
+      dockerfile: Dockerfile
+      additional_contexts:
+        corporate-certs: ../BmBackend/certs
+    command: ["python", "docling_customer_data_extraction_api_server.py"]
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      <<: *proxy-environment
+      FLASK_ENV: production
+      LOG_LEVEL: ${DOCLING_LOG_LEVEL:-INFO}
+      HF_HUB_DISABLE_XET: "1"
+    volumes:
+      - local-qa-docling-models:/app/models
+      - local-qa-docling-temp:/app/temp
+      - local-qa-docling-uploads:/app/uploads
+      - local-qa-docling-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+    logging: *default-logging
+    restart: unless-stopped
+
+  price-agent:
+    image: bm/price-agent:local-qa
+    build:
+      context: ../BmPriceAgent
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:5002:5002"
+    environment:
+      <<: *proxy-environment
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in local-qa.env}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.7-flash}
+      LOG_LEVEL: ${PRICE_AGENT_LOG_LEVEL:-INFO}
+      MAX_CONCURRENCY: ${PRICE_AGENT_MAX_CONCURRENCY:-5}
+      PORT: "5002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: *default-logging
+    restart: unless-stopped
+
+  n8n-qa:
+    image: bm/n8n:local-qa
+    build:
+      context: ../DoclingBillReader
+      dockerfile: Dockerfile.n8n
+      additional_contexts:
+        corporate-certs: ../BmBackend/certs
+    ports:
+      - "127.0.0.1:6678:5678"
+    environment:
+      <<: *proxy-environment
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_QA_PASSWORD:?Set N8N_QA_PASSWORD in local-qa.env}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in local-qa.env}
+      N8N_RESTRICT_ENVIRONMENT_VARIABLES: "false"
+      DOCLING_API_URL: http://docling-api:5000
+      DOCLING_CUSTOMER_API_URL: http://docling-api:5000
+      PRICE_AGENT_URL: http://price-agent:5002
+      BM_BACKEND_URL: http://backend-qa:8081
+      WEBHOOK_URL: http://localhost:6678/
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      NODE_ENV: production
+      DB_TYPE: sqlite
+    volumes:
+      - local-qa-n8n:/home/node/.n8n
+    depends_on:
+      docling-api:
+        condition: service_healthy
+      price-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    logging: *default-logging
+    restart: unless-stopped
+
+  backend-qa:
+    image: bm/backend:local-qa
+    build:
+      # Local QA always runs the current BmBackend checkout. A second
+      # BmBackEnd-qa checkout is only needed by the simultaneous VPS stack.
+      context: ../BmBackend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:9081:8081"
+    environment:
+      <<: *proxy-environment
+      KTOR_ENV: production
+      BM_ENV: qa
+      SERVICE_NAME: bm-backend
+      LOG_FORMAT: ${QA_LOG_FORMAT:-text}
+      LOG_LEVEL: ${QA_LOG_LEVEL:-DEBUG}
+      DB_URL: jdbc:postgresql://postgres:5432/bm_qa?sslmode=disable
+      DB_USER: bm_app
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in local-qa.env}
+      BM_ENCRYPTION_KEY: ${BM_ENCRYPTION_KEY:?Set BM_ENCRYPTION_KEY in local-qa.env}
+      FIREBASE_SERVICE_ACCOUNT_PATH: /app/firebase-service-account.json
+      DOCLING_CUSTOMER_API_URL: http://docling-api:5000
+      DOCLING_PRICE_TABLES_API_URL: http://price-agent:5002
+      N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL: http://n8n-qa:5678/webhook/fetch-user-consumption
+      N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL: http://n8n-qa:5678/webhook/fetch-total-prices
+    volumes:
+      - ${FIREBASE_SERVICE_ACCOUNT_FILE:?Set FIREBASE_SERVICE_ACCOUNT_FILE in local-qa.env}:/app/firebase-service-account.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docling-api:
+        condition: service_healthy
+      price-agent:
+        condition: service_healthy
+      n8n-qa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+    restart: unless-stopped
+
+volumes:
+  local-qa-postgres:
+  local-qa-docling-models:
+  local-qa-docling-temp:
+  local-qa-docling-uploads:
+  local-qa-docling-logs:
+  local-qa-n8n:
