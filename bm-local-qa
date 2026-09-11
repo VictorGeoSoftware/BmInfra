@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_FILE="$ROOT_DIR/docker-compose.local-qa.yml"
+ENV_FILE="$ROOT_DIR/local-qa.env"
+
+usage() {
+  cat <<'EOF'
+Usage: bm-local-qa <command> [service...]
+
+Commands:
+  up                 Build and start the complete local QA stack
+  start              Start previously created containers without rebuilding
+  down               Stop and remove containers (persistent data is kept)
+  status             Show service and health status
+  logs [service...]  Follow logs for all or selected services
+  config             Validate and render the resolved Compose configuration
+  urls               Print local service URLs
+
+Run this script through its path from any BM repository, for example:
+  ../BmInfra/bm-local-qa up
+EOF
+}
+
+require_env_file() {
+  if [[ ! -f "$ENV_FILE" ]]; then
+    printf 'Missing %s\n' "$ENV_FILE" >&2
+    printf 'Create it from %s and replace every placeholder.\n' "$ROOT_DIR/local-qa.env.example" >&2
+    exit 1
+  fi
+}
+
+compose() {
+  docker compose \
+    --project-name bm-local-qa \
+    --project-directory "$ROOT_DIR" \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    "$@"
+}
+
+command="${1:-}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$command" in
+  up)
+    require_env_file
+    compose config --quiet
+    compose up --detach --build --wait
+    "$0" urls
+    ;;
+  start)
+    require_env_file
+    compose start "$@"
+    ;;
+  down)
+    require_env_file
+    compose down "$@"
+    ;;
+  status|ps)
+    require_env_file
+    compose ps "$@"
+    ;;
+  logs)
+    require_env_file
+    compose logs --follow "$@"
+    ;;
+  config)
+    require_env_file
+    compose config "$@"
+    ;;
+  urls)
+    cat <<'EOF'
+Local QA services:
+  Backend:     http://localhost:9081
+  Health:      http://localhost:9081/health/ready
+  n8n:         http://localhost:6678
+  Docling:     http://localhost:5000/health
+  Price Agent: http://localhost:5002/ready
+  PostgreSQL:  localhost:15433 (database bm_qa)
+EOF
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    printf 'Unknown command: %s\n\n' "$command" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

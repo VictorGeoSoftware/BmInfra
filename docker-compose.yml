@@ -40,6 +40,8 @@ services:
     build:
       context: ../DoclingBillReader
       dockerfile: Dockerfile
+      additional_contexts:
+        corporate-certs: ../BmBackEnd/certs
     command: ["python", "docling_customer_data_extraction_api_server.py"]
     ports:
       - "5000:5000"
@@ -217,6 +219,8 @@ services:
     build:
       context: ../DoclingBillReader
       dockerfile: Dockerfile.n8n
+      additional_contexts:
+        corporate-certs: ../BmBackEnd/certs
     container_name: bm-n8n-prod
     ports:
       - "5678:5678"

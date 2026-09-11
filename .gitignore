@@ -2,6 +2,7 @@
 .env
 *.env
 !.env.example
+!*.env.example
 
 # Firebase service accounts (if ever placed here)
 firebase-service-account.json
