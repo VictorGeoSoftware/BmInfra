@@ -277,6 +277,7 @@ services:
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-user-consumption
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-total-prices
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
+      - BM_DEVICE_BINDING_EXEMPT_EMAILS=victor.carrasco@brielmarnysos.com
     volumes:
       - ../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json:/app/firebase-service-account.json:ro
     depends_on:

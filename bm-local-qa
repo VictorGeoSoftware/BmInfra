@@ -12,6 +12,8 @@ Usage: bm-local-qa <command> [service...]
 
 Commands:
   up                 Build and start the complete local QA stack
+  rebuild-backend    Rebuild and restart only backend-qa (other services must be running)
+  ready              Check backend readiness (http://localhost:9081/health/ready)
   start              Start previously created containers without rebuilding
   down               Stop and remove containers (persistent data is kept)
   status             Show service and health status
@@ -34,7 +36,7 @@ require_env_file() {
 
 compose() {
   docker compose \
-    --project-name bm-local-qa \
+    --project-name bminfra \
     --project-directory "$ROOT_DIR" \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
@@ -52,6 +54,15 @@ case "$command" in
     compose config --quiet
     compose up --detach --build --wait
     "$0" urls
+    ;;
+  rebuild-backend)
+    require_env_file
+    compose up --detach --build --no-deps --wait --wait-timeout 600 backend-qa
+    "$0" ready
+    ;;
+  ready)
+    curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://localhost:9081/health/ready
+    printf '\n'
     ;;
   start)
     require_env_file

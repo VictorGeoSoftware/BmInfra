@@ -87,6 +87,19 @@ it while working in another sibling project, for example from `BmBackend`:
 ../BmInfra/bm-local-qa down
 ```
 
+After changing only `BmBackend` code, rebuild just the backend instead of the
+whole stack. It skips the dependency waits and ends with a readiness check:
+
+```bash
+../BmInfra/bm-local-qa rebuild-backend   # rebuild + restart backend-qa only
+../BmInfra/bm-local-qa ready             # readiness check, no rebuild
+```
+
+The Compose project name is `bminfra` (containers `bminfra-*`, volumes
+`bminfra_local-qa-*`). Always go through the launcher; calling
+`docker compose` with another project name creates a second stack with empty
+volumes and port conflicts.
+
 All published ports bind to `127.0.0.1`. Named volumes preserve the QA
 database, Docling models, and n8n state across `down`/`up` cycles. The launcher
 does not delete volumes. Local QA PostgreSQL uses host port `15433` to avoid

@@ -1,4 +1,4 @@
-name: bm-local-qa
+name: bminfra
 
 # Local QA only. VPS-only services such as Nginx, TLS, PROD, and observability
 # intentionally do not belong in this stack.
