@@ -193,6 +193,7 @@ services:
       # uncomment the matching volume mount. Auth endpoints fail without it,
       # but the app still starts (Firebase init is lazy).
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
+      - BM_DEVICE_BINDING_EXEMPT_EMAILS=victor.carrasco@brielmarnysos.com,vpalmacarrasco@gmail.com,manuel.briones@brielmarnysos.com
     volumes:
       - ../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json:/app/firebase-service-account.json:ro
     depends_on:
