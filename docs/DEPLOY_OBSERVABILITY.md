@@ -6,7 +6,7 @@ correlation, log rotation, Loki + Promtail + Grafana).
 **Read §1 before running anything.** The order of these steps is not cosmetic:
 one step out of sequence breaks all three deployment pipelines.
 
-- **VPS:** `root@217.154.181.175`
+- **VPS:** `root@217.154.181.175` (SSH only; public traffic is HTTPS via `api.*` / `api.qa.*`, raw-IP ports 8090/8091 are loopback-only since 2026-11-16)
 - **Compose project:** `/opt/bm/BmInfra` (manually maintained — no CI updates it)
 - **Est. time:** 30–40 min, most of it waiting on image builds
 
@@ -109,7 +109,7 @@ Watch the run in GitHub Actions until it goes green, then **verify**:
 
 ```bash
 ssh root@217.154.181.175 "cd /opt/bm/BmInfra && docker compose ps backend-qa"
-curl -s -o /dev/null -w '%{http_code}\n' http://217.154.181.175:8091/health
+curl -s -o /dev/null -w '%{http_code}\n' https://api.qa.poweredbyadvisors.com/health
 ```
 
 Expected: container `Up (healthy)`, HTTP `200`.
@@ -118,7 +118,7 @@ Now confirm the **monitoring code** actually shipped, not merely that the
 container is alive:
 
 ```bash
-curl -s -i http://217.154.181.175:8091/health | grep -i x-request-id
+curl -s -i https://api.qa.poweredbyadvisors.com/health | grep -i x-request-id
 ```
 
 Expected: `X-Request-Id: <some id>`. That header comes from `RequestIdPlugin`,
@@ -203,7 +203,7 @@ merge to `main` actually deployed.
 
 ```bash
 docker compose ps nginx
-curl -s -o /dev/null -w '%{http_code}\n' http://217.154.181.175:8090/metrics
+curl -s -o /dev/null -w '%{http_code}\n' https://api.poweredbyadvisors.com/metrics
 ```
 
 Expected: `Up`, and HTTP `403`.
@@ -243,7 +243,7 @@ to succeed — a `404` or `401` is fine, because what is being tested is log
 correlation, not the response:
 
 ```bash
-RID=$(curl -s -i -X POST http://217.154.181.175:8090/api/v1/prices/collected \
+RID=$(curl -s -i -X POST https://api.poweredbyadvisors.com/api/v1/prices/collected \
         -H 'Content-Type: application/json' -d '{}' \
       | awk 'tolower($1)=="x-request-id:"{print $2}' | tr -d '\r')
 echo "request id: $RID"
