@@ -101,11 +101,16 @@ jobs:
             echo '♻️  Reloading monitoring configs...'
             docker compose restart loki promtail grafana
 
-            # Nginx likewise re-reads nginx.conf only on restart; 'up -d' will
-            # have recreated it only if the compose spec itself changed.
-            docker compose exec -T nginx nginx -t \
-              && docker compose exec -T nginx nginx -s reload \
-              || echo 'nginx reload skipped (container not running or config unchanged)'
+            # Nginx: 'nginx -s reload' is NOT enough. nginx.conf is a single-file
+            # bind mount and 'git reset --hard' replaces the file (new inode),
+            # so the running container keeps seeing the old one. Validate the
+            # new file in a throwaway container (same mounts/network), then
+            # restart so the mount is re-attached. A broken config fails here
+            # with the old nginx still serving.
+            echo '🧪 Validating nginx.conf...'
+            docker compose run --rm --no-deps -T nginx nginx -t
+            echo '♻️  Restarting nginx...'
+            docker compose restart nginx
           "
 
       - name: Health check
