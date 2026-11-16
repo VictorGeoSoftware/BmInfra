@@ -79,7 +79,7 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
     (single-file bind mount kept the pre-reset nginx.conf; PROD vhost needed
     a manual `docker compose restart nginx` on 2026-11-16).
   - [x] Switch clients: Vercel `BM_BACKEND_URL` (PowerAppWeb + BmWeb PROD) →
-    `https://api.poweredbyadvisors.com`. BmApp PR #66 open (app being retired).
+    `https://api.poweredbyadvisors.com`. BmApp PR #66 merged to `qa` (app being retired, no release planned).
 - [x] Clean up nginx port mapping (2026-11-16): base `8090/8091/8443` now bind to
   127.0.0.1, so the override only adds the public `80` and `443`.
 - [ ] Automated Postgres backups (pg_dump cron → off-box copy). Manual one:
@@ -119,9 +119,28 @@ exposed the unauthenticated n8n-only endpoints).
     (backup `/root/ufw-backup-2026-11-16`). Public: 22, 80, 443 only.
   - [x] Stale docs: TECH_DEBT reload claim, raw-IP URLs (BmBackEnd, BmInfra,
     DoclingBillReader `docs/vps-security-cleanup` PRs).
-  - [ ] VPS OS updates + reboot (103 pending, up 369 days). Docker packages
-    held back: compose 2.40 → 5.7 is a major jump, upgrade separately.
-  - [ ] BmApp PR #66: merge or close (app being retired).
+  - [x] VPS OS updates + reboot (2026-11-16): 91 packages, kernel
+    6.8.0-149, ~1 min downtime, all containers back healthy. Pre-reboot DB
+    backup `/root/backup-2026-11-16-1258-prereboot.sql.gz`.
+  - [x] BmApp PR #66: already merged to `qa`; app retired, nothing to do.
+
+## Follow-ups (after the security plan)
+
+- [ ] **Docker upgrade** (held with `apt-mark hold` on 2026-11-16): engine
+  29.0 → 29.9, containerd 2.1 → 2.4, compose plugin 2.40 → 5.7. Read the
+  Compose 5 release notes first, `apt-mark unhold` the 7 docker packages,
+  upgrade in a quiet window (dockerd restart = all containers restart), then
+  run a no-op BmInfra deploy (`workflow_dispatch`) to prove CI still works.
+- [ ] **Automated off-box Postgres backups**: nightly
+  `pg_dumpall -U bm_app | gzip` cron with retention, copied off the VPS
+  (e.g. IONOS object storage). Test a restore once.
+- [ ] **Retire the old host PostgreSQL** (`postgresql@16-main`, 127.0.0.1:5432,
+  pre-Docker rollback): `systemctl disable --now postgresql@16-main`, keep
+  `/root/bm_backup_2026-08-03_0842.dump`. Same item as in Cleanup above.
+- [ ] **n8n deprecation warnings**: set `N8N_RUNNERS_ENABLED=true`,
+  `DB_SQLITE_POOL_SIZE` > 0 and `N8N_GIT_NODE_DISABLE_BARE_REPOS=true`. Try on
+  `n8n-qa` first (task runners change how Code nodes execute) and run both
+  workflows before applying to PROD.
 
 ---
 
