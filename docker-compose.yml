@@ -228,19 +228,25 @@ services:
       additional_contexts:
         corporate-certs: ../BmBackEnd/certs
     container_name: bm-n8n-prod
+    # Loopback only: the editor is served by nginx at https://n8n.poweredbyadvisors.com.
+    # Fallback: ssh -L 5678:127.0.0.1:5678 root@<vps>, then http://localhost:5678
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=admin
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PROD_PASSWORD:?N8N_PROD_PASSWORD must be set}
       - DOCLING_API_URL=http://docling-api:5000
-      - WEBHOOK_URL=http://localhost:5678/
-      - N8N_HOST=localhost
+      # Public HTTPS address (TLS ends at nginx). Backend -> n8n calls keep
+      # using http://n8n-prod:5678/webhook/... on bm-network.
+      - N8N_HOST=${N8N_PROD_HOST:-n8n.poweredbyadvisors.com}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_PROD_HOST:-n8n.poweredbyadvisors.com}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_PROD_HOST:-n8n.poweredbyadvisors.com}/
       - N8N_PORT=5678
-      - N8N_PROTOCOL=http
+      - N8N_PROXY_HOPS=1
       - NODE_ENV=production
-      - N8N_SECURE_COOKIE=false
+      - N8N_SECURE_COOKIE=true
       - DB_TYPE=sqlite
       # Read by workflow expressions as {{ $env.INTERNAL_API_TOKEN }} for the
       # backend's X-Internal-Token header. Env access must stay enabled.
@@ -314,19 +320,25 @@ services:
   n8n-qa:
     image: bm/n8n:latest             # reuses the image built by n8n-prod
     container_name: bm-n8n-qa
+    # Loopback only: the editor is served by nginx at https://n8n.qa.poweredbyadvisors.com.
+    # Fallback: ssh -L 6678:127.0.0.1:6678 root@<vps>, then http://localhost:6678
     ports:
-      - "6678:5678"
+      - "127.0.0.1:6678:5678"
     environment:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=admin
       - N8N_BASIC_AUTH_PASSWORD=${N8N_QA_PASSWORD:?N8N_QA_PASSWORD must be set}
       - DOCLING_API_URL=http://docling-api:5000
-      - WEBHOOK_URL=http://localhost:6678/
-      - N8N_HOST=localhost
+      # Public HTTPS address (TLS ends at nginx). Backend -> n8n calls keep
+      # using http://n8n-qa:5678/webhook/... on bm-network.
+      - N8N_HOST=${N8N_QA_HOST:-n8n.qa.poweredbyadvisors.com}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_QA_HOST:-n8n.qa.poweredbyadvisors.com}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_QA_HOST:-n8n.qa.poweredbyadvisors.com}/
       - N8N_PORT=5678
-      - N8N_PROTOCOL=http
+      - N8N_PROXY_HOPS=1
       - NODE_ENV=production
-      - N8N_SECURE_COOKIE=false
+      - N8N_SECURE_COOKIE=true
       - DB_TYPE=sqlite
       # Read by workflow expressions as {{ $env.INTERNAL_API_TOKEN }} for the
       # backend's X-Internal-Token header. Env access must stay enabled.
@@ -347,8 +359,8 @@ services:
   # ─── SHARED: Nginx ───
   # :80  -> HTTPS redirects for api.* / api.qa.* + ACME challenges
   # :443 -> PROD / QA backend via api.* / api.qa.* (Let's Encrypt)
-  # :81  -> QA backend (port-based, loopback only). n8n is still reached
-  # directly on its published ports (5678 / 6678) until it gets a domain.
+  # :81  -> QA backend (port-based, loopback only)
+  # :443 -> n8n.* / n8n.qa.* -> n8n editors (websocket push)
 
   nginx:
     image: nginx:alpine

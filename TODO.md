@@ -101,7 +101,7 @@ exposed the unauthenticated n8n-only endpoints).
   - VPS override: `81:81` removed (QA reached via `api.qa.*` only).
   - CI health checks use `https://api.poweredbyadvisors.com/health`.
   - Breaks installed BmApp builds that call `http://<ip>:8081` (app retired).
-- [ ] Phase 2: shared-secret header on `consumption-report` and
+- [x] Phase 2 (2026-11-16, BmInfra #8, BmBackEnd #84, DoclingBillReader #60): shared-secret header on `consumption-report` and
   `batch-process-price-tables` (BmBackEnd).
   - `INTERNAL_API_TOKEN` in VPS `.env` (added 2026-11-16), passed to both
     backends and both n8n instances.
@@ -109,9 +109,11 @@ exposed the unauthenticated n8n-only endpoints).
     `X-Internal-Token: {{ $env.INTERNAL_API_TOKEN }}` (PROD + QA).
   - `consumption-report` had 0 calls in 30 days (the live consumption workflow
     answers via webhook response); it is gated anyway.
-- [ ] Phase 3: n8n on HTTPS (`n8n.` / `n8n.qa.poweredbyadvisors.com`: IONOS A
-  records, certbot, nginx vhosts with websockets, `N8N_SECURE_COOKIE=true`,
-  public `WEBHOOK_URL`), then bind 5678/6678 to 127.0.0.1.
+- [ ] Phase 3: n8n on HTTPS (`feature/n8n-https`).
+  - [x] IONOS A records `n8n` / `n8n.qa` → 217.154.181.175; certbot webroot
+    certs issued 2026-11-16 (expire 2027-02-14, same auto-renew).
+  - nginx vhosts (websocket push, public `/webhook*/` denied), n8n HTTPS
+    settings with `N8N_SECURE_COOKIE=true`, 5678/6678 bound to 127.0.0.1.
 - [ ] Phase 4: cleanup. VPS OS updates + reboot; fix stale docs
   (`BmBackEnd/docs/TECH_DEBT.md` reload claim, raw-IP URLs in
   `DEPLOYMENT.md` / `QUICK_DEPLOY.md`); merge or close BmApp PR #66; tidy ufw
