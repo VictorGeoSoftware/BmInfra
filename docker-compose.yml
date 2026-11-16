@@ -185,6 +185,9 @@ services:
       - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
       # Optional. Unset => /metrics is disabled and returns 401 to everyone.
       - METRICS_TOKEN=${METRICS_TOKEN:-}
+      # Shared secret n8n sends as X-Internal-Token on the machine-to-machine
+      # endpoints (batch-process-price-tables, consumption-report).
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
       # Default keeps the Docling service; set PROD_PRICE_TABLES_URL in .env to
       # http://price-agent:5002 to switch extraction to the LLM agent.
@@ -239,6 +242,10 @@ services:
       - NODE_ENV=production
       - N8N_SECURE_COOKIE=false
       - DB_TYPE=sqlite
+      # Read by workflow expressions as {{ $env.INTERNAL_API_TOKEN }} for the
+      # backend's X-Internal-Token header. Env access must stay enabled.
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n-prod-data:/home/node/.n8n
     depends_on:
@@ -273,6 +280,9 @@ services:
       - BM_ENCRYPTION_KEY=${BM_ENCRYPTION_KEY:?BM_ENCRYPTION_KEY must be set}
       # Optional. Unset => /metrics is disabled and returns 401 to everyone.
       - METRICS_TOKEN=${METRICS_TOKEN:-}
+      # Shared secret n8n sends as X-Internal-Token on the machine-to-machine
+      # endpoints (batch-process-price-tables, consumption-report).
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
       - DOCLING_CUSTOMER_API_URL=http://docling-api:5000
       # Default keeps the Docling service; set QA_PRICE_TABLES_URL in .env to
       # http://price-agent:5002 to switch extraction to the LLM agent.
@@ -318,6 +328,10 @@ services:
       - NODE_ENV=production
       - N8N_SECURE_COOKIE=false
       - DB_TYPE=sqlite
+      # Read by workflow expressions as {{ $env.INTERNAL_API_TOKEN }} for the
+      # backend's X-Internal-Token header. Env access must stay enabled.
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n-qa-data:/home/node/.n8n
     depends_on:

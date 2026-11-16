@@ -93,7 +93,7 @@ the internet, including Postgres and both backends (which bypassed nginx and
 exposed the unauthenticated n8n-only endpoints).
 
 - [x] Phase 0: port audit + DB backup (`/root/backup-2026-11-16-0950.sql.gz`).
-- [ ] Phase 1: lock down (BmInfra `feature/vps-lockdown` + BmBackEnd CI PR).
+- [x] Phase 1 (2026-11-16): lock down (BmInfra #7 + BmBackEnd #82).
   - Internal ports (5000, 5001, 5002, 5433, 8081, 9081, 8090/8091/8443) →
     `127.0.0.1`. Reach them with `ssh -L <port>:127.0.0.1:<port> root@<vps>`.
   - nginx: exact-match deny `= /api/v1/consumption-report` in every proxying
@@ -102,7 +102,13 @@ exposed the unauthenticated n8n-only endpoints).
   - CI health checks use `https://api.poweredbyadvisors.com/health`.
   - Breaks installed BmApp builds that call `http://<ip>:8081` (app retired).
 - [ ] Phase 2: shared-secret header on `consumption-report` and
-  `batch-process-price-tables` (BmBackEnd), sent by the two n8n workflows.
+  `batch-process-price-tables` (BmBackEnd).
+  - `INTERNAL_API_TOKEN` in VPS `.env` (added 2026-11-16), passed to both
+    backends and both n8n instances.
+  - n8n "Fetch prices from Total" → "Storing prices" sends
+    `X-Internal-Token: {{ $env.INTERNAL_API_TOKEN }}` (PROD + QA).
+  - `consumption-report` had 0 calls in 30 days (the live consumption workflow
+    answers via webhook response); it is gated anyway.
 - [ ] Phase 3: n8n on HTTPS (`n8n.` / `n8n.qa.poweredbyadvisors.com`: IONOS A
   records, certbot, nginx vhosts with websockets, `N8N_SECURE_COOKIE=true`,
   public `WEBHOOK_URL`), then bind 5678/6678 to 127.0.0.1.
