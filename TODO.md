@@ -71,6 +71,14 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
 ## Infra hardening (optional)
 
 - [ ] Domain + Let's Encrypt SSL (nginx :443).
+  - [x] PROD (2026-11-16): IONOS A record `api.poweredbyadvisors.com` →
+    217.154.181.175; certbot webroot cert issued (expires 2027-02-14, same
+    auto-renew as QA); nginx `443 ssl` vhost → `backend-prod`, HTTP→HTTPS
+    redirect for the domain. Raw-IP HTTP catch-all kept for installed apps.
+  - [ ] Switch clients: Vercel `BM_BACKEND_URL` (PowerAppWeb + BmWeb PROD),
+    BmApp `API_BASE_URL` + drop `usesCleartextTraffic`.
+  - [ ] Once old app versions are gone: remove raw-IP catch-all, stop
+    publishing 8081/9081 publicly (move CI health checks off the raw IP first).
 - [ ] Clean up nginx port mapping: the override appends to base `8090/8091` instead of
   replacing — use `ports: !reset` in `docker-compose.override.yml` if the extra ports are unwanted.
 - [ ] Automated Postgres backups (pg_dump cron → off-box copy).
