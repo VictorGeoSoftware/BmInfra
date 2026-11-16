@@ -117,7 +117,12 @@ jobs:
         run: |
           sleep 15
           echo "Checking PROD backend..."
-          curl -f http://217.154.181.175:8081/health || exit 1
+          # Through nginx + TLS, the path real clients use. Port 8081 is bound
+          # to 127.0.0.1 and is not reachable from GitHub runners.
+          curl -f https://api.poweredbyadvisors.com/health || exit 1
+          echo "Checking n8n-only endpoint is not public..."
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST https://api.poweredbyadvisors.com/api/v1/consumption-report)
+          [ "$code" = "403" ] || { echo "::error::consumption-report returned $code, expected 403"; exit 1; }
           echo "Checking Loki is ingesting..."
           ssh root@217.154.181.175 \
             "curl -sf http://127.0.0.1:3100/loki/api/v1/label/job/values | grep -q bm-backend" \
