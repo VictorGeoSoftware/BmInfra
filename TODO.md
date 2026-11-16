@@ -75,6 +75,9 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
     217.154.181.175; certbot webroot cert issued (expires 2027-02-14, same
     auto-renew as QA); nginx `443 ssl` vhost → `backend-prod`, HTTP→HTTPS
     redirect for the domain. Raw-IP HTTP catch-all kept for installed apps.
+  - [x] Deploy fix: workflow restarts nginx instead of `nginx -s reload`
+    (single-file bind mount kept the pre-reset nginx.conf; PROD vhost needed
+    a manual `docker compose restart nginx` on 2026-11-16).
   - [ ] Switch clients: Vercel `BM_BACKEND_URL` (PowerAppWeb + BmWeb PROD),
     BmApp `API_BASE_URL` + drop `usesCleartextTraffic`.
   - [ ] Once old app versions are gone: remove raw-IP catch-all, stop
