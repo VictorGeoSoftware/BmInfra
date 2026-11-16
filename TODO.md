@@ -109,15 +109,19 @@ exposed the unauthenticated n8n-only endpoints).
     `X-Internal-Token: {{ $env.INTERNAL_API_TOKEN }}` (PROD + QA).
   - `consumption-report` had 0 calls in 30 days (the live consumption workflow
     answers via webhook response); it is gated anyway.
-- [ ] Phase 3: n8n on HTTPS (`feature/n8n-https`).
+- [x] Phase 3 (2026-11-16, BmInfra #10): n8n on HTTPS.
   - [x] IONOS A records `n8n` / `n8n.qa` → 217.154.181.175; certbot webroot
     certs issued 2026-11-16 (expire 2027-02-14, same auto-renew).
   - nginx vhosts (websocket push, public `/webhook*/` denied), n8n HTTPS
     settings with `N8N_SECURE_COOKIE=true`, 5678/6678 bound to 127.0.0.1.
-- [ ] Phase 4: cleanup. VPS OS updates + reboot; fix stale docs
-  (`BmBackEnd/docs/TECH_DEBT.md` reload claim, raw-IP URLs in
-  `DEPLOYMENT.md` / `QUICK_DEPLOY.md`); merge or close BmApp PR #66; tidy ufw
-  rules (8081/5000 allows are now moot).
+- [ ] Phase 4: cleanup.
+  - [x] ufw (2026-11-16): removed moot 5678/5000/8081 allows and 5010 deny
+    (backup `/root/ufw-backup-2026-11-16`). Public: 22, 80, 443 only.
+  - [x] Stale docs: TECH_DEBT reload claim, raw-IP URLs (BmBackEnd, BmInfra,
+    DoclingBillReader `docs/vps-security-cleanup` PRs).
+  - [ ] VPS OS updates + reboot (103 pending, up 369 days). Docker packages
+    held back: compose 2.40 → 5.7 is a major jump, upgrade separately.
+  - [ ] BmApp PR #66: merge or close (app being retired).
 
 ---
 
