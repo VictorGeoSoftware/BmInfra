@@ -78,13 +78,38 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   - [x] Deploy fix: workflow restarts nginx instead of `nginx -s reload`
     (single-file bind mount kept the pre-reset nginx.conf; PROD vhost needed
     a manual `docker compose restart nginx` on 2026-11-16).
-  - [ ] Switch clients: Vercel `BM_BACKEND_URL` (PowerAppWeb + BmWeb PROD),
-    BmApp `API_BASE_URL` + drop `usesCleartextTraffic`.
-  - [ ] Once old app versions are gone: remove raw-IP catch-all, stop
-    publishing 8081/9081 publicly (move CI health checks off the raw IP first).
-- [ ] Clean up nginx port mapping: the override appends to base `8090/8091` instead of
-  replacing — use `ports: !reset` in `docker-compose.override.yml` if the extra ports are unwanted.
-- [ ] Automated Postgres backups (pg_dump cron → off-box copy).
+  - [x] Switch clients: Vercel `BM_BACKEND_URL` (PowerAppWeb + BmWeb PROD) →
+    `https://api.poweredbyadvisors.com`. BmApp PR #66 open (app being retired).
+- [x] Clean up nginx port mapping (2026-11-16): base `8090/8091/8443` now bind to
+  127.0.0.1, so the override only adds the public `80` and `443`.
+- [ ] Automated Postgres backups (pg_dump cron → off-box copy). Manual one:
+  `docker compose exec -T postgres pg_dumpall -U bm_app | gzip > /root/backup-$(date +%F).sql.gz`
+  (user is `bm_app`, not `postgres`).
+
+## VPS security plan (started 2026-11-16)
+
+Context: Docker publishes ports past ufw, so every `"N:N"` mapping was open to
+the internet, including Postgres and both backends (which bypassed nginx and
+exposed the unauthenticated n8n-only endpoints).
+
+- [x] Phase 0: port audit + DB backup (`/root/backup-2026-11-16-0950.sql.gz`).
+- [ ] Phase 1: lock down (BmInfra `feature/vps-lockdown` + BmBackEnd CI PR).
+  - Internal ports (5000, 5001, 5002, 5433, 8081, 9081, 8090/8091/8443) →
+    `127.0.0.1`. Reach them with `ssh -L <port>:127.0.0.1:<port> root@<vps>`.
+  - nginx: exact-match deny `= /api/v1/consumption-report` in every proxying
+    block; raw-IP `:80` catch-all serves ACME only (444 otherwise).
+  - VPS override: `81:81` removed (QA reached via `api.qa.*` only).
+  - CI health checks use `https://api.poweredbyadvisors.com/health`.
+  - Breaks installed BmApp builds that call `http://<ip>:8081` (app retired).
+- [ ] Phase 2: shared-secret header on `consumption-report` and
+  `batch-process-price-tables` (BmBackEnd), sent by the two n8n workflows.
+- [ ] Phase 3: n8n on HTTPS (`n8n.` / `n8n.qa.poweredbyadvisors.com`: IONOS A
+  records, certbot, nginx vhosts with websockets, `N8N_SECURE_COOKIE=true`,
+  public `WEBHOOK_URL`), then bind 5678/6678 to 127.0.0.1.
+- [ ] Phase 4: cleanup. VPS OS updates + reboot; fix stale docs
+  (`BmBackEnd/docs/TECH_DEBT.md` reload claim, raw-IP URLs in
+  `DEPLOYMENT.md` / `QUICK_DEPLOY.md`); merge or close BmApp PR #66; tidy ufw
+  rules (8081/5000 allows are now moot).
 
 ---
 
