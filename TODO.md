@@ -1,5 +1,80 @@
 # BmInfra — Pending Tasks
 
+Open infrastructure / VPS work. Backend *code* debt lives in
+`BmBackEnd/docs/TECH_DEBT.md`; everything about the VPS, Compose, nginx, n8n
+hosting and deploy pipelines lives here. Done items are kept below as history.
+
+## Open
+
+### Cleanup on the VPS (~10 min, frees ~16 GB)
+
+- [ ] **Retire the old host PostgreSQL** (`postgresql@16-main`, 127.0.0.1:5432),
+  kept as rollback since the 2026-08-03 Docker cutover:
+  `systemctl disable --now postgresql@16-main`.
+- [ ] **Remove pre-Docker leftovers**: the orphan `docling-api` image (8.5 GB;
+  its container is already gone: `docker rmi docling-api`), `/root/DoclingBillReader`
+  (7.9 GB), `/root/BmBackEnd`, `/opt/DoclingBillReader`, `/opt/docling*`, and the
+  old systemd units (`bm-backend`, `docling-api`, `docling-price-tables`, `n8n`,
+  `n8n-compose`, `ollama` drop-in; check they are disabled, then delete and
+  `systemctl daemon-reload`).
+
+> **Keep** `/root/bm_backup_2026-08-03_0842.dump` (pre-migration DB backup).
+
+### Reliability
+
+- [ ] **Automated off-box Postgres backups**: nightly
+  `pg_dumpall -U bm_app | gzip` cron with retention, copied off the VPS
+  (e.g. IONOS object storage). Test a restore once. Manual one today:
+  `docker compose exec -T postgres pg_dumpall -U bm_app | gzip > /root/backup-$(date +%F).sql.gz`
+  (user is `bm_app`, not `postgres`).
+- [ ] **The VPS-only `docker-compose.override.yml` is load-bearing** (moved from
+  BmBackEnd TECH_DEBT #2). Compose auto-loads it; it is the only place that
+  publishes **80/443** and wires `BM_AUTH_EMAIL_ALLOWLIST`. If the VPS is
+  rebuilt it is gone and public traffic stops. Current content (2026-11-16):
+  ```yaml
+  services:
+    nginx:
+      ports: ["80:80", "443:443"]
+    backend-prod:
+      environment: [BM_AUTH_EMAIL_ALLOWLIST=${BM_AUTH_EMAIL_ALLOWLIST}]
+    backend-qa:
+      environment: [BM_AUTH_EMAIL_ALLOWLIST=${BM_AUTH_EMAIL_ALLOWLIST}]
+  ```
+  Fix: commit it as `docker-compose.vps.yml` and pass `-f` explicitly in the
+  BmInfra, BmBackEnd and DoclingBillReader deploy workflows (can't commit it
+  under the auto-loaded name: it would bind privileged ports on dev machines).
+- [ ] **One missing `.env` variable breaks every deploy pipeline** (moved from
+  BmBackEnd TECH_DEBT #8). Compose parses the whole file, so any `${VAR:?}`
+  that is unset (e.g. `GRAFANA_ADMIN_PASSWORD`) fails BmBackEnd PROD/QA and
+  DoclingBillReader deploys with an error naming an unrelated service. Keep `:?`
+  only for security-critical values (`DB_PASSWORD`, `BM_ENCRYPTION_KEY`,
+  `INTERNAL_API_TOKEN`, n8n passwords); use `:-default` elsewhere, and keep an
+  `env.example` listing every variable.
+
+### Upgrades
+
+- [ ] **Docker upgrade** (held with `apt-mark hold` on 2026-11-16): engine
+  29.0 → 29.9, containerd 2.1 → 2.4, compose plugin 2.40 → 5.7. Read the
+  Compose 5 release notes first, `apt-mark unhold` the 7 docker packages,
+  upgrade in a quiet window (dockerd restart = all containers restart), then
+  run a no-op BmInfra deploy (`workflow_dispatch`) to prove CI still works.
+  Engine/containerd can go first with compose still held.
+- [ ] **n8n deprecation warnings**: set `N8N_RUNNERS_ENABLED=true`,
+  `DB_SQLITE_POOL_SIZE` > 0 and `N8N_GIT_NODE_DISABLE_BARE_REPOS=true`. Try on
+  `n8n-qa` first (task runners change how Code nodes execute) and run both
+  workflows before applying to PROD.
+
+### Someday / only if needed
+
+- [ ] Build/push images to a registry instead of building on the VPS.
+- [ ] If LLM-based extraction is reintroduced, decide where the LLM runs
+  (container vs. host with `extra_hosts: host.docker.internal`) and re-add `LLM_*` env
+  vars to the compose service accordingly.
+
+---
+
+# History (done)
+
 Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
 
 ## n8n
@@ -15,15 +90,10 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   1.123.20 / to 2.x later, the Chromium install must be reworked
   (multi-stage copy from alpine, or a Playwright-based base image).
 
-## Cleanup (after a confidence period, ~1 week stable)
+## Cleanup
 
-- [ ] Disable + stop the old system PostgreSQL (kept running as rollback):
-  `systemctl disable --now postgresql@16-main`
-- [ ] Remove the stray 5-month-old `docling-api` container on port 5010:
-  `docker rm -f docling-api && docker rmi docling-api`
-- [ ] Remove old deployment leftovers once unneeded: `/root/BmBackEnd`, `/root/DoclingBillReader`,
-  `/opt/DoclingBillReader`, `/opt/docling*`, old systemd unit files.
-- [ ] Keep `/root/bm_backup_2026-08-03_0842.dump` (pre-migration DB backup) — do not delete.
+- [x] Stray `docling-api` container on port 5010 removed (image still there,
+  see Open → Cleanup). Old host Postgres and leftovers: see Open.
 
 ## CI/CD
 
@@ -38,10 +108,7 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   all `LLM_*`/Ollama references stripped from DoclingBillReader (they were vestigial — no
   Python code consumed them; the `/extract-conditions` and `/extract-all-v2` endpoints
   documented in the old README don't exist in the code).
-- [ ] **Future**: if LLM-based extraction is reintroduced, decide where the LLM runs
-  (container vs. host with `extra_hosts: host.docker.internal`) and re-add `LLM_*` env
-  vars to the compose service accordingly.
-- [ ] Consider building/pushing images to a registry instead of building on the VPS.
+- Registry builds and LLM placement: see Open → Someday.
 
 ## QA environment
 
@@ -60,17 +127,13 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
   2026-11-05, auto-renew via systemd timer + deploy hook
   `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`). nginx serves
   `443 ssl`, HTTP→HTTPS redirect, override maps `443:443`, ufw allows 443.
-- [ ] **Expose QA externally** when needed: open ufw ports `9081` (backend) and
-  `6678` (n8n QA) — currently blocked, so the GitHub Actions QA health check is
-  non-blocking. Command: `ufw allow 9081/tcp && ufw allow 6678/tcp`.
-  Consider restricting to specific source IPs rather than `Anywhere`.
-  (Not needed for the web flow once `api.qa.*` works via nginx :80/:443.)
-- [ ] **Seed n8n-qa**: import workflows + re-create the Total.es credentials in
-  the n8n-qa instance (port 6678).
+- [x] ~~Expose QA externally (ufw 9081/6678)~~ — dropped 2026-11-16: QA is
+  reached via `https://api.qa.*` and `https://n8n.qa.*`; raw ports are loopback.
+- [x] Seed n8n-qa: workflows + Total.es credential present (verified 2026-11-16).
 
 ## Infra hardening (optional)
 
-- [ ] Domain + Let's Encrypt SSL (nginx :443).
+- [x] Domain + Let's Encrypt SSL (nginx :443).
   - [x] PROD (2026-11-16): IONOS A record `api.poweredbyadvisors.com` →
     217.154.181.175; certbot webroot cert issued (expires 2027-02-14, same
     auto-renew as QA); nginx `443 ssl` vhost → `backend-prod`, HTTP→HTTPS
@@ -82,9 +145,7 @@ Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
     `https://api.poweredbyadvisors.com`. BmApp PR #66 merged to `qa` (app being retired, no release planned).
 - [x] Clean up nginx port mapping (2026-11-16): base `8090/8091/8443` now bind to
   127.0.0.1, so the override only adds the public `80` and `443`.
-- [ ] Automated Postgres backups (pg_dump cron → off-box copy). Manual one:
-  `docker compose exec -T postgres pg_dumpall -U bm_app | gzip > /root/backup-$(date +%F).sql.gz`
-  (user is `bm_app`, not `postgres`).
+- Automated Postgres backups: see Open → Reliability.
 
 ## VPS security plan (started 2026-11-16)
 
@@ -114,7 +175,7 @@ exposed the unauthenticated n8n-only endpoints).
     certs issued 2026-11-16 (expire 2027-02-14, same auto-renew).
   - nginx vhosts (websocket push, public `/webhook*/` denied), n8n HTTPS
     settings with `N8N_SECURE_COOKIE=true`, 5678/6678 bound to 127.0.0.1.
-- [ ] Phase 4: cleanup.
+- [x] Phase 4: cleanup.
   - [x] ufw (2026-11-16): removed moot 5678/5000/8081 allows and 5010 deny
     (backup `/root/ufw-backup-2026-11-16`). Public: 22, 80, 443 only.
   - [x] Stale docs: TECH_DEBT reload claim, raw-IP URLs (BmBackEnd, BmInfra,
@@ -124,23 +185,7 @@ exposed the unauthenticated n8n-only endpoints).
     backup `/root/backup-2026-11-16-1258-prereboot.sql.gz`.
   - [x] BmApp PR #66: already merged to `qa`; app retired, nothing to do.
 
-## Follow-ups (after the security plan)
-
-- [ ] **Docker upgrade** (held with `apt-mark hold` on 2026-11-16): engine
-  29.0 → 29.9, containerd 2.1 → 2.4, compose plugin 2.40 → 5.7. Read the
-  Compose 5 release notes first, `apt-mark unhold` the 7 docker packages,
-  upgrade in a quiet window (dockerd restart = all containers restart), then
-  run a no-op BmInfra deploy (`workflow_dispatch`) to prove CI still works.
-- [ ] **Automated off-box Postgres backups**: nightly
-  `pg_dumpall -U bm_app | gzip` cron with retention, copied off the VPS
-  (e.g. IONOS object storage). Test a restore once.
-- [ ] **Retire the old host PostgreSQL** (`postgresql@16-main`, 127.0.0.1:5432,
-  pre-Docker rollback): `systemctl disable --now postgresql@16-main`, keep
-  `/root/bm_backup_2026-08-03_0842.dump`. Same item as in Cleanup above.
-- [ ] **n8n deprecation warnings**: set `N8N_RUNNERS_ENABLED=true`,
-  `DB_SQLITE_POOL_SIZE` > 0 and `N8N_GIT_NODE_DISABLE_BARE_REPOS=true`. Try on
-  `n8n-qa` first (task runners change how Code nodes execute) and run both
-  workflows before applying to PROD.
+Follow-ups from the security plan are in **Open** at the top.
 
 ---
 
