@@ -43,6 +43,13 @@ hosting and deploy pipelines lives here. Done items are kept below as history.
   `INTERNAL_API_TOKEN`, n8n passwords); use `:-default` elsewhere, and keep an
   `env.example` listing every variable.
 
+### Observability
+
+- [ ] **History overlaps (BmBackEnd TECH_DEBT #18)**: after a few weeks, review
+  the Grafana dashboard "BM — History overlaps" (share of studies affected,
+  blocked totals) and decide with the domain expert whether the overlap
+  semantics need settling. n8n keeps executions 90 days (Excel included).
+
 ### Upgrades
 
 - [ ] **Docker upgrade** (held with `apt-mark hold` on 2026-11-16): engine

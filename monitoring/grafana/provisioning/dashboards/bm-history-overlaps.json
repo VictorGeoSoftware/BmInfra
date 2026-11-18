@@ -1,0 +1,315 @@
+{
+  "uid": "bm-history-overlaps",
+  "title": "BM — History overlaps (TECH_DEBT #18)",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "tags": [
+    "bm",
+    "tech-debt"
+  ],
+  "description": "Studies whose consumption history has overlapping rows. Each line links to the n8n execution that downloaded the portal Excel (open the line's details → 'Open n8n execution').",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "custom",
+        "query": "prod,qa",
+        "current": {
+          "text": "prod",
+          "value": "prod"
+        },
+        "options": [
+          {
+            "text": "prod",
+            "value": "prod",
+            "selected": true
+          },
+          {
+            "text": "qa",
+            "value": "qa",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "cups",
+        "label": "CUPS contains",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Studies completed",
+      "description": "Completed consumption studies (PDF, image or CUPS) in the time range.",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\"} |~ \"(Consumption report|CUPS consumption) job completed\" [$__auto]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Studies with overlaps",
+      "description": "Completed studies whose history has at least one overlapping pair of rows.",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\"} |= \"History overlaps found\" |~ \"cups=[^ ]*$cups\" [$__auto]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "…with a blocked total",
+      "description": "At least one ACTIVE/REACTIVE overlap without an all-zero row: the report shows no firm total for that window.",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\"} |= \"History overlaps found\" |~ \"cups=[^ ]*$cups\" |~ \"blocking=[1-9]\" [$__auto]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Overlapping pairs",
+      "description": "Total overlapping pairs across those studies.",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(sum_over_time({job=\"bm-backend\", env=\"$env\"} |= \"History overlaps found\" |~ \"cups=[^ ]*$cups\" | regexp \"overlaps=(?P<n>[0-9]+)\" | unwrap n [$__auto]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Studies per day — completed vs with overlaps",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\"} |~ \"(Consumption report|CUPS consumption) job completed\" [1d]))",
+          "legendFormat": "completed"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({job=\"bm-backend\", env=\"$env\"} |= \"History overlaps found\" |~ \"cups=[^ ]*$cups\" [1d]))",
+          "legendFormat": "with overlaps"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Cases — click a line, then 'Open n8n execution' to get the Excel",
+      "datasource": {
+        "type": "loki",
+        "uid": "bm-loki"
+      },
+      "description": "Rows are 1-based in source order (they match the portal Excel). Effect per pair: blocks_total = no firm total; neutral_zero_row = one row all 0.0, total still shown; hides_demand_mean = peak shown, mean of maxima hidden. No consumption values are logged.",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"bm-backend\", env=\"$env\"} |= \"History overlaps found\" |~ \"cups=[^ ]*$cups\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}
