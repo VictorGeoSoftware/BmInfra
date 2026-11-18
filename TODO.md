@@ -6,19 +6,11 @@ hosting and deploy pipelines lives here. Done items are kept below as history.
 
 ## Open
 
-### Cleanup on the VPS (~10 min, frees ~16 GB)
+### Disk
 
-- [ ] **Retire the old host PostgreSQL** (`postgresql@16-main`, 127.0.0.1:5432),
-  kept as rollback since the 2026-08-03 Docker cutover:
-  `systemctl disable --now postgresql@16-main`.
-- [ ] **Remove pre-Docker leftovers**: the orphan `docling-api` image (8.5 GB;
-  its container is already gone: `docker rmi docling-api`), `/root/DoclingBillReader`
-  (7.9 GB), `/root/BmBackEnd`, `/opt/DoclingBillReader`, `/opt/docling*`, and the
-  old systemd units (`bm-backend`, `docling-api`, `docling-price-tables`, `n8n`,
-  `n8n-compose`, `ollama` drop-in; check they are disabled, then delete and
-  `systemctl daemon-reload`).
-
-> **Keep** `/root/bm_backup_2026-08-03_0842.dump` (pre-migration DB backup).
+- [ ] **Docker build cache: 96 GB reclaimable** (`docker system df`, 2026-11-18),
+  plus ~11.5 GB of unused images. `docker builder prune` (optionally with
+  `--filter until=168h`) frees it; the next image builds are slower once.
 
 ### Reliability
 
@@ -74,6 +66,23 @@ hosting and deploy pipelines lives here. Done items are kept below as history.
 ---
 
 # History (done)
+
+## VPS cleanup (2026-11-18)
+
+- [x] **Rogue n8n removed.** `n8n-compose.service` (Nov 2025) ran
+  `/root/docker-compose.yaml` at boot; since the 2026-11-16 reboot it started an
+  empty stock n8n (`root-n8n-1`) configured for public `0.0.0.0:5678` (it only
+  lost the port race to `n8n-prod`). Verified empty (no workflows/credentials),
+  then unit disabled + deleted, stack and volume removed.
+- [x] Old host PostgreSQL (`postgresql@16-main`) stopped and disabled.
+- [x] Pre-Docker leftovers deleted: `/root/BmBackEnd`, `/root/DoclingBillReader`
+  (7.6 GB venv), `/opt/DoclingBillReader`, `/opt/docling*`, old systemd units
+  (`bm-backend`, `docling-api`, `docling-price-tables`, `n8n*`, `ollama` drop-in),
+  orphan `docling-api` image. ~8 GB freed.
+- [x] Archive kept in `/root/pre-docker-archive-2026-11-18/` (root-only):
+  `leftover-configs.tgz` (configs, `.env` files, unit files; no venv/node_modules)
+  and `old-host-postgres-pg_dumpall.sql.gz`.
+
 
 Post-migration follow-ups after the VPS Docker cutover (2026-08-03).
 
