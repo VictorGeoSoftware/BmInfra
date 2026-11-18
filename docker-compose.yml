@@ -194,6 +194,9 @@ services:
       - DOCLING_PRICE_TABLES_API_URL=${PROD_PRICE_TABLES_URL:-http://docling-price-tables:5001}
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-user-consumption
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-prod:5678/webhook/fetch-total-prices
+      # Public editor URL, used only to build links to n8n executions in logs
+      # (e.g. "History overlaps found ... n8nRun=<url>").
+      - N8N_PUBLIC_URL=${N8N_PROD_PUBLIC_URL:-https://n8n.poweredbyadvisors.com}
       # Firebase auth (optional locally). To enable, drop the JSON at
       # ../BmBackEnd/firebase-service-account.json, set the path below, and
       # uncomment the matching volume mount. Auth endpoints fail without it,
@@ -252,6 +255,11 @@ services:
       # backend's X-Internal-Token header. Env access must stay enabled.
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Keep executions (incl. the downloaded portal Excel, stored inline) for
+      # 90 days instead of the 14-day default, so a logged case can be opened
+      # later. ~60 KB per consumption run.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=2160
     volumes:
       - n8n-prod-data:/home/node/.n8n
     depends_on:
@@ -295,6 +303,7 @@ services:
       - DOCLING_PRICE_TABLES_API_URL=${QA_PRICE_TABLES_URL:-http://docling-price-tables:5001}
       - N8N_FETCH_USER_CONSUMPTION_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-user-consumption
       - N8N_FETCH_TOTAL_PRICES_WEBHOOK_URL=http://n8n-qa:5678/webhook/fetch-total-prices
+      - N8N_PUBLIC_URL=${N8N_QA_PUBLIC_URL:-https://n8n.qa.poweredbyadvisors.com}
       - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
     volumes:
       - ../brielmarnysos-1dc68-firebase-adminsdk-fbsvc-3e2586a86a.json:/app/firebase-service-account.json:ro
@@ -344,6 +353,11 @@ services:
       # backend's X-Internal-Token header. Env access must stay enabled.
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Keep executions (incl. the downloaded portal Excel, stored inline) for
+      # 90 days instead of the 14-day default, so a logged case can be opened
+      # later. ~60 KB per consumption run.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=2160
     volumes:
       - n8n-qa-data:/home/node/.n8n
     depends_on:

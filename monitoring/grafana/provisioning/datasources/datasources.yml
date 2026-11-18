@@ -13,5 +13,11 @@ datasources:
       maxLines: 1000
       # Lets Grafana surface requestId/logger/method/path, which Promtail
       # attaches as structured metadata rather than as labels.
-      derivedFields: []
+      derivedFields:
+        # "History overlaps found ... n8nRun=<url>": shown as a clickable link
+        # in the log line details, opening the n8n execution (and its Excel).
+        - name: n8nRun
+          matcherRegex: 'n8nRun=(https://\S+)'
+          url: '$${__value.raw}'
+          urlDisplayLabel: Open n8n execution
     editable: false
